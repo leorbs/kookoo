@@ -1,3 +1,4 @@
+
 #include "Arduino.h"
 #include <SoftwareSerial.h>
 #include "DFRobotDFPlayerMini.h"
@@ -9,16 +10,25 @@
 //sensor1 -> handsensor
 //sensor2 -> präsenzsensor
 const int sensor1_pin = A0; // connect IR sensor module to Arduino pin A0
-const int sensor2_pin = A1; // TODO: connect präsenz sensor module to Arduino pin XX, choose and ajust pin
-const int relay_pin = 2;
+const int sensor2_pin = A1; // praesense sensor module to Arduino pin A1
+const int relay1_pin = 2; // relay 1 on pin D2 soap dispenser
+const int relay2_pin = 3; // relay 2 on pin D3 kookoo bird
+
+const int DFPlayer_arduinoRX = 10; // pin D10 -> RX on arduino TX on DFPlayer
+const int DFPlayer_arduinoTX = 11; // pin D11 -> TX on arduino RX on DFPlayer
 
 const int sound1_playFor = 5000; //how long should sound 1 be played?
 const int sound2_playFor = 5000; //how long should sound 2 be played?
-const int relay_switchFor = 1000; // how long should the relay be switched?
+const int relay1_switchFor = 300; // how long should the relay1 be switched?
+const int relay2_switchFor = 300; // how long should the relay2 be switched?
 
-const int sound1_backoff = 7000; // how long should the sound 1 not be played after it has been played
+const int sound1_backoff = 10000 + relay2_switchFor; // how long should the sound 1 not be played after it has been played
 const int sound2_backoff = 30000; // how long should the sound 2 not be played after it has been played
-const int relay_backoff = 3000; // how long should the relay not be switched after it has been through a switch cycle
+const int relay1_backoff = 2000; // how long should the relay not be switched after it has been through a switch cycle
+const int relay2_backoff = 10000 + sound1_playFor; // how long should the relay not be switched after it has been through a switch cycle
+
+const int volume = 10; // sound volume 0-30 
+
 
 
 // --------------------------------------------------
@@ -31,19 +41,28 @@ unsigned long sound2_lastPlayStart = 0;
 unsigned long sound2_lastPlayStop = 1;
 
 
-unsigned long relay_lastTriggerOn = 0;
-unsigned long relay_lastTriggerOff = 1;
+unsigned long relay1_lastTriggerOn = 0;
+unsigned long relay1_lastTriggerOff = 1;
+
+unsigned long relay2_lastTriggerOn = 0;
+unsigned long relay2_lastTriggerOff = 1;
+
+bool sensor1_lastState = false;
+bool sensor2_lastState = false;
 
 static unsigned long currentTime;
 
 SoftwareSerial DFPlayerSoftwareSerial(10,11);// RX, TX
 DFRobotDFPlayerMini mp3Player;
 
+//announce methodes we gonna use
 bool checkTimeOver(unsigned long lastTrigger, unsigned long triggerDelay);
 bool isCurrentlyInAction(unsigned long actionStart, unsigned long actionEnd);
 bool isCurrentlyNotInAction(unsigned long actionStart, unsigned long actionEnd);
-void handleRelaySwitchOn();
-void handleRelaySwitchOff();
+void switchSensor1RelatedStuffOn();
+void switchSensor2RelatedStuffOn();
+void handleRelay1SwitchOn();
+void handleRelay1SwitchOff();
 void handleSound1Start();
 void handleSound1Stop();
 void handleSound2Start();
@@ -52,34 +71,65 @@ void handleSound2Stop();
 void setup() {
   pinMode(sensor1_pin, INPUT);
   pinMode(sensor2_pin, INPUT);
-  pinMode(relay_pin, OUTPUT);
+  pinMode(relay1_pin, OUTPUT);
+  pinMode(relay2_pin, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  digitalWrite(relay1_pin, HIGH);
+  digitalWrite(relay2_pin, HIGH);
 
   //Serial.begin(9600);
   DFPlayerSoftwareSerial.begin(9600);
   Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   mp3Player.begin(DFPlayerSoftwareSerial, false, true);
-  mp3Player.volume(30); // Lautstärke auf 20 (0-30) setzen
+  mp3Player.volume(volume); // Lautstärke auf 20 (0-30) setzen
+
+  delay(500);
 }
 
 void loop() {
+  delay(20);
   // Sensor-Zustand überprüfen
-  bool sensor1_isOn = digitalRead(sensor1_pin);
-  bool sensor2_isOn = digitalRead(sensor2_pin);
+  bool sensor1_isOn = !digitalRead(sensor1_pin);
+  bool sensor2_isOn = !digitalRead(sensor2_pin);
 
-  currentTime = millis();
+  //display sensor1 state with buldin led
+  digitalWrite(LED_BUILTIN, sensor1_isOn);
 
-  if(sensor1_isOn) {
-    handleRelaySwitchOn();
-    handleSound1Start();
+  currentTime = millis() + 30000; //give it a little headstart / offset
+
+  if(sensor1_isOn && sensor1_lastState == false) {
+    Serial.print("Sensor_1 is on ");
+    Serial.println(currentTime);
+    switchSensor1RelatedStuffOn();
+    sensor1_lastState = true;
+  } else if(!sensor1_isOn && sensor1_lastState == true) {
+    sensor1_lastState = false;
   }
 
-  if(sensor2_isOn) {
-    handleSound2Start();
+  if(sensor2_isOn && sensor2_lastState == false) {
+    Serial.print("Sensor_2 is on ");
+    Serial.println(currentTime);
+    switchSensor2RelatedStuffOn();
+    sensor2_lastState = true;
+  } else if(!sensor2_isOn && sensor2_lastState == true) {
+    sensor2_lastState = false;
   }
 
-  handleRelaySwitchOff();
+  handleRelay1SwitchOff();
+  handleRelay2SwitchOff();
   handleSound1Stop();
   handleSound2Stop();
+}
+
+void switchSensor1RelatedStuffOn() {
+  handleRelay1SwitchOn();
+  handleRelay2SwitchOn();
+  handleSound1Start();
+}
+
+void switchSensor2RelatedStuffOn() {
+  handleSound2Start();
 }
 
 // Die folgenden Methoden funktionieren alle gleich:
@@ -90,24 +140,46 @@ void loop() {
 
 // das gleich Prinzip gilt auch für Aktionen, die gerade ausgeführt werden und ausgeschaltet werden sollen.
 
-void handleRelaySwitchOn() {
-  if(isCurrentlyNotInAction(relay_lastTriggerOff, relay_lastTriggerOn)) {
+void handleRelay1SwitchOn() {
+  if(isCurrentlyNotInAction(relay1_lastTriggerOn, relay1_lastTriggerOff)) {
     //relay can be switched on
-    if(checkTimeOver(relay_lastTriggerOff, relay_backoff)) {
-      //switch soap on
-      digitalWrite(relay_pin, LOW); 
-      relay_lastTriggerOn = currentTime;
+    if(checkTimeOver(relay1_lastTriggerOff, relay1_backoff)) {
+      Serial.println("switch soap on");
+      digitalWrite(relay1_pin, LOW); 
+      relay1_lastTriggerOn = currentTime;
     }
   }
 }
 
-void handleRelaySwitchOff() {
-  if(isCurrentlyInAction(relay_lastTriggerOff, relay_lastTriggerOn)) {
+void handleRelay1SwitchOff() {
+  if(isCurrentlyInAction(relay1_lastTriggerOn, relay1_lastTriggerOff)) {
     //relay can be switched off
-    if(checkTimeOver(relay_lastTriggerOn, relay_switchFor)) {
-      //switch soap off
-      digitalWrite(relay_pin, HIGH); 
-      relay_lastTriggerOff = currentTime;
+    if(checkTimeOver(relay1_lastTriggerOn, relay1_switchFor)) {
+      Serial.println("switch soap off");
+      digitalWrite(relay1_pin, HIGH); 
+      relay1_lastTriggerOff = currentTime;
+    }
+  }
+}
+
+void handleRelay2SwitchOn() {
+  if(isCurrentlyNotInAction(relay2_lastTriggerOn, relay2_lastTriggerOff)) {
+    //relay can be switched on
+    if(checkTimeOver(relay2_lastTriggerOff, relay2_backoff)) {
+      Serial.println("switch bird on");
+      digitalWrite(relay2_pin, LOW); 
+      relay2_lastTriggerOn = currentTime;
+    }
+  }
+}
+
+void handleRelay2SwitchOff() {
+  if(isCurrentlyInAction(relay2_lastTriggerOn, relay2_lastTriggerOff)) {
+    //relay can be switched off
+    if(checkTimeOver(relay2_lastTriggerOn, relay2_switchFor)) {
+      Serial.println("switch bird off");
+      digitalWrite(relay2_pin, HIGH); 
+      relay2_lastTriggerOff = currentTime;
     }
   }
 }
@@ -117,6 +189,7 @@ void handleSound1Start(){
     //sound can be started
     if(checkTimeOver(sound1_lastPlayStop, sound1_backoff)) {
       //start sound1
+      Serial.println("start sound1");
       mp3Player.play(1);
       sound1_lastPlayStart = currentTime;
 
@@ -130,7 +203,7 @@ void handleSound1Stop() {
   if(isCurrentlyInAction(sound1_lastPlayStart, sound1_lastPlayStop)) {
     //sound can be stopped
     if(checkTimeOver(sound1_lastPlayStart, sound1_playFor)) {
-      //stop sound1
+      Serial.println("stop sound1");
       mp3Player.stop();
       sound1_lastPlayStop = currentTime;
     }
@@ -141,7 +214,7 @@ void handleSound2Start() {
   if(isCurrentlyNotInAction(sound2_lastPlayStart, sound2_lastPlayStop))  {
     //sound can be started
     if(checkTimeOver(sound2_lastPlayStop, sound2_backoff)) {
-      //start sound1
+      Serial.println("start sound2");
       mp3Player.play(2);
       sound2_lastPlayStart = currentTime;
     }
@@ -152,7 +225,7 @@ void handleSound2Stop() {
   if(isCurrentlyInAction(sound2_lastPlayStart, sound2_lastPlayStop)) {
     //sound can be stopped
     if(checkTimeOver(sound2_lastPlayStart, sound2_playFor)) {
-      //stop sound1
+      Serial.println("stop sound2");
       mp3Player.stop();
       sound2_lastPlayStop = currentTime;
     }
@@ -170,3 +243,4 @@ bool isCurrentlyInAction(unsigned long actionStart, unsigned long actionEnd) {
 bool isCurrentlyNotInAction(unsigned long actionStart, unsigned long actionEnd) {
   return ! isCurrentlyInAction(actionStart, actionEnd);
 }
+

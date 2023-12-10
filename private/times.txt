@@ -1,0 +1,5 @@
+date;from;to;time;what
+;;;2h;develop initial draft
+;;;2h;debug on premise
+10.12.2023;17:00;20:00;3h;document project with fritzing. Add 2nd relay. Remove startup switching of relays
+
