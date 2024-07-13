@@ -22,8 +22,8 @@ const int DFPlayer_arduinoTX = 11; // pin D11 -> TX on arduino RX on DFPlayer
 const int sound1_playFor = 5000; //how long should sound 1 be played?
 const int sound2_playFor = 5000; //how long should sound 2 be played?
 const int sound3_playFor = 5000; //how long should sound 3 be played?
-const int relay1_switchFor = 300; // how long should the relay1 be switched?
-const int relay2_switchFor = 300; // how long should the relay2 be switched?
+const int relay1_switchFor = 550; // how long should the relay1 be switched?
+const int relay2_switchFor = 500; // how long should the relay2 be switched?
 
 const int sound1_backoff = 10000 + relay2_switchFor; // how long should the sound 1 not be played after it has been played
 const int sound2_backoff = 30000; // how long should the sound 2 not be played after it has been played
@@ -33,7 +33,7 @@ const int relay2_backoff = 10000 + sound1_playFor; // how long should the relay 
 
 const int ledBlinkInterval = 1000;
 
-const int volume = 10; // sound volume 0-30 
+const int volume = 25; // sound volume 0-30 
 
 
 
@@ -111,7 +111,7 @@ void loop() {
   // Sensor-Zustand überprüfen
   bool sensor1_isOn = !digitalRead(sensor1_pin);
   bool sensor2_isOn = !digitalRead(sensor2_pin);
-  bool sensor3_isOn = !digitalRead(sensor3_pin); 
+  bool sensor3_isOn = false; // !digitalRead(sensor3_pin);
 
   //display sensor1 state with buldin led
   digitalWrite(LED_BUILTIN, sensor1_isOn);
