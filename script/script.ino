@@ -9,9 +9,10 @@
 
 //sensor1 -> handsensor
 //sensor2 -> präsenzsensor
-const int sensor1_pin = A0; // connect IR sensor module to Arduino pin A0
-const int sensor2_pin = A1; // praesense sensor module for hands to Arduino pin A1
-const int sensor3_pin = A2; // praesense sensor module for tamper detection to Arduino pin A2
+//sensor2 -> shake sensor
+const int sensor1_pin = A0; // connect IR hand sensor module to Arduino pin A0
+const int sensor2_pin = A1; // praesense sensor module to Arduino pin A1
+const int sensor3_pin = A2; // sensor module for tamper detection to Arduino pin A2
 const int relay1_pin = 2; // relay 1 on pin D2 soap dispenser
 const int relay2_pin = 3; // relay 2 on pin D3 kookoo bird
 const int LED1_pin = A3; // LED
@@ -19,21 +20,23 @@ const int LED1_pin = A3; // LED
 const int DFPlayer_arduinoRX = 10; // pin D10 -> RX on arduino TX on DFPlayer
 const int DFPlayer_arduinoTX = 11; // pin D11 -> TX on arduino RX on DFPlayer
 
-const int sound1_playFor = 5000; //how long should sound 1 be played?
-const int sound2_playFor = 5000; //how long should sound 2 be played?
-const int sound3_playFor = 5000; //how long should sound 3 be played?
-const int relay1_switchFor = 550; // how long should the relay1 be switched?
-const int relay2_switchFor = 500; // how long should the relay2 be switched?
+const unsigned  int sound1_playFor = 5000; //how long should sound 1 be played?
+const unsigned  int sound2_playFor = 3000; //how long should sound 2 be played?
+const unsigned  int sound3_playFor = 2000; //how long should sound 3 be played?
+const unsigned  int relay1_switchFor = 550; // how long should the relay1 be switched?
+const unsigned  int relay2_switchFor = 500; // how long should the relay2 be switched?
 
-const int sound1_backoff = 10000 + relay2_switchFor; // how long should the sound 1 not be played after it has been played
-const int sound2_backoff = 30000; // how long should the sound 2 not be played after it has been played
-const int sound3_backoff = 30000; // how long should the sound 3 not be played after it has been played
-const int relay1_backoff = 2000; // how long should the relay not be switched after it has been through a switch cycle
-const int relay2_backoff = 10000 + sound1_playFor; // how long should the relay not be switched after it has been through a switch cycle
+const unsigned  int sound1_backoff = 10000 + relay2_switchFor; // how long should the sound 1 not be played after it has been played
+const unsigned  int sound2_backoff = 60000; // how long should the sound 2 not be played after it has been played
+const unsigned  int sound3_backoff = 15000; // how long should the sound 3 not be played after it has been played
+const unsigned  int relay1_backoff = 2000; // how long should the relay not be switched after it has been through a switch cycle
+const unsigned  int relay2_backoff = 10000 + sound1_playFor; // how long should the relay not be switched after it has been through a switch cycle
 
-const int ledBlinkInterval = 1000;
+const unsigned  int ledBlinkInterval = 1000;
 
-const int volume = 25; // sound volume 0-30 
+const unsigned  int volume = 30; // sound volume 0-30 
+
+const unsigned  int shakeSensitivity = 20; // up to 1024. The higher the number, the lower the sensitivity
 
 
 
@@ -63,6 +66,8 @@ bool sensor2_lastState = false;
 bool sensor3_lastState = false;
 
 static unsigned long currentTime;
+static unsigned long rememberShakeTime;
+bool shakeNeedsToBeHandled = false;
 
 SoftwareSerial DFPlayerSoftwareSerial(10,11);// RX, TX
 DFRobotDFPlayerMini mp3Player;
@@ -110,15 +115,15 @@ void loop() {
   delay(20);
   // Sensor-Zustand überprüfen
   bool sensor1_isOn = !digitalRead(sensor1_pin);
-  bool sensor2_isOn = !digitalRead(sensor2_pin);
-  bool sensor3_isOn = false; // !digitalRead(sensor3_pin);
+  bool sensor2_isOn = digitalRead(sensor2_pin);
+  int sensor3_value = analogRead(sensor3_pin);
 
   //display sensor1 state with buldin led
   digitalWrite(LED_BUILTIN, sensor1_isOn);
 
   ledSwitch();
 
-  currentTime = millis() + 30000; //give it a little headstart / offset
+  currentTime = millis() + 100000; //give it a little headstart / offset
 
   if(sensor1_isOn && sensor1_lastState == false) {
     Serial.print("Sensor_1 is on ");
@@ -138,13 +143,36 @@ void loop() {
     sensor2_lastState = false;
   }
 
-  if(sensor3_isOn && sensor3_lastState == false) {
-    Serial.print("Sensor_3 is on ");
+  //shake sensor:
+  // detect shake
+  // see if x time before or wait for x time after for soap dispenser
+  // if no soap dispenser active, then start sound
+
+  if(sensor3_value > shakeSensitivity && sensor3_lastState == false && !shakeNeedsToBeHandled) {
+    Serial.print("Sensor_3 shake detected. Shake amount: ");
+    Serial.print(sensor3_value);
+    Serial.print(" time: ");
     Serial.println(currentTime);
-    switchSensor3RelatedStuffOn();
+    rememberShakeTime = currentTime;
+    shakeNeedsToBeHandled = true;
     sensor3_lastState = true;
-  } else if(!sensor3_isOn && sensor3_lastState == true) {
+  } else if(sensor3_value <= shakeSensitivity && sensor3_lastState == true) {
     sensor3_lastState = false;
+  }
+
+  
+  //TODO: shorten time
+
+  if(shakeNeedsToBeHandled) {
+    if( currentTime - relay1_lastTriggerOn < 10 * 1000) {
+      //there was a soap dispense event less than 30 secends ago and shake doesnt need to be handeled
+      shakeNeedsToBeHandled = false;
+    } else if (currentTime - rememberShakeTime > 5 * 1000) {
+      //if the shaketime is 5 seconds ago with no soap dispenser event happening
+      //then sound alarm
+      switchSensor3RelatedStuffOn();
+      shakeNeedsToBeHandled = false;
+    }
   }
 
   handleRelay1SwitchOff();
@@ -155,9 +183,12 @@ void loop() {
 }
 
 void switchSensor1RelatedStuffOn() {
+  //pretent like sound 2 has just been stopped, so it wont play for the backoff time amount of sound 2
+  sound2_lastPlayStop = currentTime;
+  
   handleRelay1SwitchOn();
   handleRelay2SwitchOn();
-  handleSound1Start();
+  //handleSound1Start();
 }
 
 void switchSensor2RelatedStuffOn() {
@@ -228,9 +259,6 @@ void handleSound1Start(){
       Serial.println("start sound1");
       mp3Player.play(1);
       sound1_lastPlayStart = currentTime;
-
-      //pretent like sound 2 has just been stopped, so it wont play for the backoff time amount of sound 2
-      sound2_lastPlayStop = currentTime;
     }
   }
 }
@@ -248,6 +276,7 @@ void handleSound1Stop() {
 
 void handleSound2Start() {
   if(isCurrentlyNotInAction(sound2_lastPlayStart, sound2_lastPlayStop))  {
+    
     //sound can be started
     if(checkTimeOver(sound2_lastPlayStop, sound2_backoff)) {
       Serial.println("start sound2");
@@ -271,7 +300,7 @@ void handleSound2Stop() {
 void handleSound3Start() {
   if(isCurrentlyNotInAction(sound3_lastPlayStart, sound3_lastPlayStop))  {
     //sound can be started
-    if(checkTimeOver(sound3_lastPlayStop, sound2_backoff)) {
+    if(checkTimeOver(sound3_lastPlayStop, sound3_backoff)) {
       Serial.println("start sound3");
       mp3Player.play(3);
       sound3_lastPlayStart = currentTime;
