@@ -116,6 +116,7 @@ void soapOn() {
     Serial.println(" is the birdCycleTime");
 
     sound.setNewDurationTime(birdCycleTime);
+    //execute the chain
     sound.startJob();
   }
 
@@ -165,7 +166,7 @@ void birdOutEnd() {
   digitalWrite(birdMotor1Gnd_pin, LOW);
   digitalWrite(birdMotor1Vcc_pin, HIGH);
   
-  //execute
+  //execute the chain
   if(flapBreakParams.amount > 0) {
     flapBreak.startJob();
   } else {
@@ -200,6 +201,7 @@ void flapEnd() {
 
   flapParams.amount = flapParams.amount - 1;
 
+  //execute the chain
   if(flapBreakParams.amount > 0) {
     flapBreak.startJob();
   } else {
@@ -217,6 +219,7 @@ void flapBreakEnd() {
 
   flapBreakParams.amount = flapBreakParams.amount - 1;
 
+  //execute the chain
   if(flapParams.amount > 0) {
     flap.startJob();
   } else {
