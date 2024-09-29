@@ -26,13 +26,16 @@
 #define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-#define VOLUME 5               // sound volume 0-30
+#define VOLUME 6               // sound volume 0-30
 #define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
 SoftTimer mainLoopTimer;
+
+TimeBasedCounter timeBasedCounter;
+unsigned long currentTime = 0;
 
 void soundOn();
 void soundOff();
@@ -81,7 +84,7 @@ JobManager birdIn(260, birdInStart, birdInEnd);
 
 JobManager soap(550, 2000, soapOn, soapOff, true);
 JobManager room(500, 60000, roomOn, roomOff, true, true);
-JobManager shake(550, 10000, shakeOn, shakeOff);
+JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
 // only sound will control bird
 // bird can only come out with sound
@@ -112,7 +115,7 @@ void soapOn() {
     (flapParams.amount * flap.getJobDuration()) +
     birdIn.getJobDuration();
 
-    birdCycleTime = birdCycleTime * 1.2f; //a bit more
+    birdCycleTime = birdCycleTime + 50; //a bit more
 
     Serial.print(birdCycleTime);
     Serial.println(" is the birdCycleTime");
@@ -145,7 +148,7 @@ void roomOn() {
     (flapParams.amount * flap.getJobDuration()) +
     birdIn.getJobDuration();
 
-    birdCycleTime = birdCycleTime * 1.2f; //a bit more
+    birdCycleTime = birdCycleTime + 50; //a bit more
 
     Serial.print(birdCycleTime);
     Serial.println(" is the birdCycleTime");
@@ -177,6 +180,9 @@ void shakeOff() {
 void soundOn() {
 
   Serial.println("sound on.");
+  Serial.print(soundParams.soundId);
+  Serial.println(" soundid playing");
+
   mp3Player.play(soundParams.soundId);
 
   if(soundParams.triggerBird) {
@@ -293,12 +299,9 @@ void setup() {
   DFPlayerSoftwareSerial.begin(9600);
   Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   mp3Player.begin(DFPlayerSoftwareSerial, false, true);
-  mp3Player.volume(VOLUME); // Lautstärke auf 20 (0-30) setzen
+  mp3Player.volume(VOLUME);
 
 }
-
-TimeBasedCounter timeBasedCounter;
-unsigned long currentTime = 0;
 
 void loop() {
   while(!mainLoopTimer.hasTimedOut());
@@ -341,6 +344,11 @@ void loop() {
   } else {
     room.resetJob();
   }
+
+  // new idea:
+  // add the analog signal to a counter
+  // decrease counter in each loop
+  // if counter too high, then tilt
   
 
   if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
