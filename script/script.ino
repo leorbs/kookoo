@@ -80,7 +80,10 @@ JobManager soap(550, 2000, soapOn, soapOff, true);
 JobManager room(550, 2000, roomOn, roomOff, true);
 JobManager shake(550, 2000, shakeOn, shakeOff);
 
-
+// only sound will control bird
+// bird can only come out with sound
+// that means if one sound is running, there can be no other sound and therefore no other bird
+// sound execution time -> full bird cycle. Execution time mandatory to prevent double bird scenario
 
 
 
@@ -89,10 +92,33 @@ void soapOn() {
   digitalWrite(pump_pin, LOW);
 
   // set new sound params for the sound job TEST
-  soundParams = {2,true};
+  Serial.print(sound.isJobActive());
+  Serial.println(" is the isJobActive");
 
-  //sound.setNewBackoffTime(123123); //lookup mp3 length
-  sound.startJob();
+  Serial.print(sound.isBackoffActive());
+  Serial.println(" is the isBackoffActive");
+
+  if(!sound.isJobActive() && !sound.isBackoffActive()) {
+    //setup the bird chain
+    flapBreakParams.amount=2;
+    flapParams.amount=1;
+    soundParams = {1,true};
+
+    uint32_t birdCycleTime = 
+    birdOut.getJobDuration() + 
+    (flapBreakParams.amount * flapBreak.getJobDuration()) + 
+    (flapParams.amount * flap.getJobDuration()) +
+    birdIn.getJobDuration();
+
+    birdCycleTime = birdCycleTime * 1.2f; //a bit more
+
+    Serial.print(birdCycleTime);
+    Serial.println(" is the birdCycleTime");
+
+    sound.setNewDurationTime(birdCycleTime);
+    sound.startJob();
+  }
+
 }
 
 void soapOff() {
@@ -118,7 +144,8 @@ void soundOn() {
   mp3Player.play(soundParams.soundId);
 
   if(soundParams.triggerBird) {
-    Serial.println("Also doing Birdstuff");
+    Serial.println("Sound doing Birdstuff");
+
     birdOut.startJob();
   }
 
@@ -138,13 +165,11 @@ void birdOutEnd() {
   digitalWrite(birdMotor1Gnd_pin, LOW);
   digitalWrite(birdMotor1Vcc_pin, HIGH);
   
-  //setup following chain
-  flapBreakParams.amount=2;
-  flapParams.amount=1;
-
   //execute
   if(flapBreakParams.amount > 0) {
     flapBreak.startJob();
+  } else {
+    birdIn.startJob();
   }
 
 }
@@ -165,6 +190,7 @@ void birdInEnd() {
 void flapStart() {
   Serial.println("flap Start");
   digitalWrite(birdFlap_pin, LOW);
+  // analogWrite(birdFlap_pin, 50);
 
 }
 
@@ -197,9 +223,6 @@ void flapBreakEnd() {
     birdIn.startJob();
   }
 }
-
-
-
 
 
 void setup() {

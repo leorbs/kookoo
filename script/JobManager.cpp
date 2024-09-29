@@ -93,11 +93,21 @@ public:
   }
 
   void setNewDurationTime(uint32_t newDuration){
-    jobTimer.setTimeOutTime(newDuration);
+    jobDuration = newDuration;
+    jobTimer.setTimeOutTime(jobDuration);
   }
 
-  void setNewBackoffTime(uint32_t newDuration){
-    backoffTimer.setTimeOutTime(newDuration);
+  void setNewBackoffTime(uint32_t newBackoffDuration){
+    backoffDuration = newBackoffDuration;
+    backoffTimer.setTimeOutTime(backoffDuration);
+  }
+
+  uint32_t getJobDuration(){
+    return jobDuration;
+  }
+
+  uint32_t getBackoffDuration(){
+    return backoffDuration;
   }
 
   // Function to check if job is currently running
