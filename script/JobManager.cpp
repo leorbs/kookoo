@@ -29,12 +29,33 @@ public:
     uint32_t backoffDurationMillis, 
     void (*enableFn)(), 
     void (*disableFn)(), 
-    bool runOnceMode = false
+    bool runOnceMode = false,
+    bool startInBackoffMode = false
   ) : jobDuration(jobDurationMillis), 
       backoffDuration(backoffDurationMillis), 
       enableFunction(enableFn), 
       disableFunction(disableFn), 
       runOnceModeActive(runOnceMode) {
+    
+    jobTimer.setTimeOutTime(jobDuration);  // Set the job duration timeout
+    backoffTimer.setTimeOutTime(backoffDuration);  // Set the backoff duration timeout
+    if(startInBackoffMode){
+      backoffTimer.reset();
+      isInBackoff = true;
+    }
+  }
+
+    // Constructor to initialize the JobManager with job duration, backoff time, and function pointers
+  JobManager(
+    uint32_t jobDurationMillis, 
+    void (*enableFn)(), 
+    void (*disableFn)(), 
+    bool runOnceMode = false
+  ) : jobDuration(jobDurationMillis), 
+      backoffDuration(0), 
+      enableFunction(enableFn), 
+      disableFunction(disableFn), 
+      runOnceModeActive(runOnceMode){
     
     jobTimer.setTimeOutTime(jobDuration);  // Set the job duration timeout
     backoffTimer.setTimeOutTime(backoffDuration);  // Set the backoff duration timeout
@@ -54,14 +75,17 @@ public:
   
   // Function to reset the job (can only be reset after the backoff has passed)
   void resetJob() {
-    if (!isInBackoff) {
+    if (!isJobRunning && !isInBackoff) {
       hasRunOnce = false;  // Allow the job to run again if in "run once" mode
     }
   }
 
   // Function to reset the backoff timer
-  void resetBackoff() {
-    isInBackoff = false;  // Allow the job to start again after reset
+  void renewBackoff() {
+    if(isInBackoff && !backoffTimer.hasTimedOut()) {
+      backoffTimer.reset();  // Reset the backoff timer
+    }
+
   }
 
   // Function to check and handle the job and backoff in loop()
@@ -73,8 +97,12 @@ public:
         disableFunction();  // Call the disable function when stopping the job
       }
       isJobRunning = false;
-      isInBackoff = true;  // Enter backoff state
-      backoffTimer.reset();  // Reset the backoff timer
+
+      if(backoffDuration != 0) {
+        isInBackoff = true;  // Enter backoff state
+        backoffTimer.reset();  // Reset the backoff timer
+      }
+
     }
 
     // Check if backoff has ended

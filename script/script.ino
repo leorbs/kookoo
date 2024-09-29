@@ -3,6 +3,7 @@
 #include "SoftwareSerial.h"
 #include "DFRobotDFPlayerMini.h"
 #include "JobManager.cpp"
+#include "TimeBasedCounter.cpp"
 
 
 const uint8_t hand_pin = A0; // connect IR hand sensor module to Arduino pin A0
@@ -27,7 +28,7 @@ const uint8_t DFPlayerTX_pin = 11; //D11 -> TX on arduino RX on DFPlayer
 
 const unsigned int ledBlinkInterval = 1000;
 
-const unsigned int volume = 30; // sound volume 0-30 
+const unsigned int volume = 5; // sound volume 0-30 
 
 const unsigned int shakeSensitivity = 20; // up to 1024. The higher the number, the lower the sensitivity
 
@@ -51,6 +52,10 @@ void roomOn();
 void roomOff();
 void shakeOn();
 void shakeOff();
+void ledOnStart();
+void ledOnEnd();
+void ledOffStart();
+void ledOffEnd();
 
 struct SoundParams {
   int soundId;
@@ -69,22 +74,24 @@ SoundParams soundParams = {1, true};
 FlapParams flapParams = {1};
 FlapBreakParams flapBreakParams = {2};
 
-JobManager sound(550, 2000, soundOn, soundOff, false);
+JobManager sound(550, soundOn, soundOff, false);
 
-JobManager flap(500, 1, flapStart, flapEnd);
-JobManager flapBreak(550, 1, flapBreakStart, flapBreakEnd);
-JobManager birdOut(240, 1, birdOutStart, birdOutEnd);
-JobManager birdIn(260, 1, birdInStart, birdInEnd);
+JobManager flap(500, flapStart, flapEnd);
+JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
+JobManager birdOut(240, birdOutStart, birdOutEnd);
+JobManager birdIn(260, birdInStart, birdInEnd);
 
 JobManager soap(550, 2000, soapOn, soapOff, true);
-JobManager room(550, 2000, roomOn, roomOff, true);
-JobManager shake(550, 2000, shakeOn, shakeOff);
+JobManager room(500, 60000, roomOn, roomOff, true, true);
+JobManager shake(550, 10000, shakeOn, shakeOff);
 
 // only sound will control bird
 // bird can only come out with sound
 // that means if one sound is running, there can be no other sound and therefore no other bird
 // sound execution time -> full bird cycle. Execution time mandatory to prevent double bird scenario
 
+JobManager ledOn(500, ledOnStart, ledOnEnd);
+JobManager ledOff(500, ledOffStart, ledOffEnd);
 
 
 void soapOn() {
@@ -95,10 +102,7 @@ void soapOn() {
   Serial.print(sound.isJobActive());
   Serial.println(" is the isJobActive");
 
-  Serial.print(sound.isBackoffActive());
-  Serial.println(" is the isBackoffActive");
-
-  if(!sound.isJobActive() && !sound.isBackoffActive()) {
+  if(!sound.isJobActive()) {
     //setup the bird chain
     flapBreakParams.amount=2;
     flapParams.amount=1;
@@ -128,12 +132,45 @@ void soapOff() {
 }
 
 void roomOn() {
+
+  Serial.println("room On");
+
+  if(!sound.isJobActive()) {
+    //setup the room chain
+    flapBreakParams.amount=5;
+    flapParams.amount=4;
+    soundParams = {2,true};
+
+    uint32_t birdCycleTime = 
+    birdOut.getJobDuration() + 
+    (flapBreakParams.amount * flapBreak.getJobDuration()) + 
+    (flapParams.amount * flap.getJobDuration()) +
+    birdIn.getJobDuration();
+
+    birdCycleTime = birdCycleTime * 1.2f; //a bit more
+
+    Serial.print(birdCycleTime);
+    Serial.println(" is the birdCycleTime");
+
+    sound.setNewDurationTime(birdCycleTime);
+    //execute the chain
+    sound.startJob();
+  }
 }
 
 void roomOff() {
 }
 
 void shakeOn() {
+  Serial.println("shake On");
+  if(!sound.isJobActive()) {
+
+    soundParams = {3,false};
+
+    sound.setNewDurationTime(5000);
+    //execute the chain
+    sound.startJob();
+  }
 }
 
 void shakeOff() {
@@ -259,14 +296,20 @@ void setup() {
 
 }
 
+TimeBasedCounter timeBasedCounter;
+unsigned long currentTime = 0;
 
 void loop() {
   delay(5);
+  currentTime = millis();
 
   // Sensor-Zustand überprüfen
   bool handSensor_isOn = !digitalRead(hand_pin);
   bool roomSensor_isOn = digitalRead(room_pin);
   int shakeSensor_value = analogRead(shake_pin);
+
+  //display sensor1 state with buldin led
+  digitalWrite(LED_BUILTIN, handSensor_isOn);
 
   soap.handleJob();
   room.handleJob();
@@ -276,25 +319,62 @@ void loop() {
   birdIn.handleJob();
   flap.handleJob();
   flapBreak.handleJob();
+  ledOn.handleJob();
+  ledOff.handleJob();
 
 
   //--------------------------------------
   if (handSensor_isOn) {
     soap.startJob();
+    timeBasedCounter.reset(); //shake is allowed when there is normal usage
+    room.renewBackoff(); // when someone uses the soap, we dont need to execute the room procedure
   } else {
     soap.resetJob();
   }
 
   if (roomSensor_isOn) {
     room.startJob();
+    room.renewBackoff(); // this renewes the backoff when someone is constantly in the room. The "room experience" is only for when you enter the room
+  } else {
+    room.resetJob();
+  }
+  
+
+  if(shakeSensor_value > 20 && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
+
+    bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
+
+    // Serial.println("================");
+    // Serial.print(wereThereMultipleShakeIncidents);
+    // Serial.println(" = wereThereMultipleShakeIncidents");
+    // Serial.print(timeBasedCounter.getLatestTime());
+    // Serial.println(" = latest time");
+    // Serial.print(currentTime);
+    // Serial.println(" = current time");
+
+    // Serial.print("shake detected: shake value ");
+    // Serial.println(shakeSensor_value);
+    // Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
+    // Serial.println(" is the current shakes detected");
+    // Serial.println("================");
+
+
+    if(wereThereMultipleShakeIncidents) {
+      shake.startJob();
+    }
   }
 
-  if(shakeSensor_value > 20) {
-    shake.startJob();
-  }
-  //--------------------------------------
+}
 
-  //display sensor1 state with buldin led
-  digitalWrite(LED_BUILTIN, handSensor_isOn);
-
+void ledOnStart() {
+  analogWrite(LED1_pin, 128);
+}
+void ledOnEnd() {
+  ledOff.startJob();
+}
+void ledOffStart() {
+  digitalWrite(LED1_pin, LOW);
+}
+void ledOffEnd() {
+  ledOn.startJob();
 }
