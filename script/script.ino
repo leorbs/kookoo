@@ -5,12 +5,6 @@
 #include "JobManager.cpp"
 
 
-//-------------------------------------------
-// folgende Konstanten können angepasst werden. Die Zeiten sind in millisekunden.
-
-//sensor1 -> handsensor
-//sensor2 -> präsenzsensor
-//sensor2 -> shake sensor
 const uint8_t hand_pin = A0; // connect IR hand sensor module to Arduino pin A0
 const uint8_t room_pin = A1; // praesense sensor module to Arduino pin A1
 const uint8_t shake_pin = A2; // sensor module for tamper detection to Arduino pin A2
@@ -27,8 +21,8 @@ const uint8_t birdMotor1Vcc_pin = 2; //D2
 const uint8_t birdMotor2Gnd_pin = 3; //D3 
 const uint8_t birdMotor2Vcc_pin = 4; //D4 
 
-const uint8_t DFPlayer_arduinoRX_pin = 10; //D10 -> RX on arduino TX on DFPlayer
-const uint8_t DFPlayer_arduinoTX_pin = 11; //D11 -> TX on arduino RX on DFPlayer
+const uint8_t DFPlayerRX_pin = 10; //D10 -> RX on arduino TX on DFPlayer
+const uint8_t DFPlayerTX_pin = 11; //D11 -> TX on arduino RX on DFPlayer
 
 
 const unsigned int ledBlinkInterval = 1000;
@@ -38,37 +32,67 @@ const unsigned int volume = 30; // sound volume 0-30
 const unsigned int shakeSensitivity = 20; // up to 1024. The higher the number, the lower the sensitivity
 
 
-SoftwareSerial DFPlayerSoftwareSerial(10,11);// RX, TX
+SoftwareSerial DFPlayerSoftwareSerial(DFPlayerRX_pin,DFPlayerTX_pin);// RX, TX
 DFRobotDFPlayerMini mp3Player;
 
-void soundOn(void* params);
+void soundOn();
 void soundOff();
 void flapStart();
 void flapEnd();
 void birdOutStart();
 void birdOutEnd();
+void birdInStart();
+void birdInEnd();
+void flapBreakStart();
+void flapBreakEnd();
+void soapOn();
+void soapOff();
+void roomOn();
+void roomOff();
+void shakeOn();
+void shakeOff();
 
 struct SoundParams {
   int soundId;
   bool triggerBird;
 };
 
-SoundParams defaultSoundParams = {1, true};
-JobManager sound(550, 2000, soundOn, &defaultSoundParams, soundOff, false);
-JobManager flap(500, 1000, flapStart, flapEnd);
-JobManager birdOut(300, 5000, birdOutStart, birdOutEnd);
-
 struct FlapParams {
   int amount;
 };
+
+struct FlapBreakParams {
+  int amount;
+};
+
+SoundParams soundParams = {1, true};
+FlapParams flapParams = {1};
+FlapBreakParams flapBreakParams = {2};
+
+JobManager sound(550, 2000, soundOn, soundOff, false);
+
+JobManager flap(500, 1, flapStart, flapEnd);
+JobManager flapBreak(550, 1, flapBreakStart, flapBreakEnd);
+JobManager birdOut(240, 1, birdOutStart, birdOutEnd);
+JobManager birdIn(260, 1, birdInStart, birdInEnd);
+
+JobManager soap(550, 2000, soapOn, soapOff, true);
+JobManager room(550, 2000, roomOn, roomOff, true);
+JobManager shake(550, 2000, shakeOn, shakeOff);
+
+
+
+
 
 void soapOn() {
   Serial.println("switch soap on");
   digitalWrite(pump_pin, LOW);
 
-  SoundParams soundParams = {1,true};
+  // set new sound params for the sound job TEST
+  soundParams = {2,true};
+
   //sound.setNewBackoffTime(123123); //lookup mp3 length
-  sound.startJob(&soundParams);
+  sound.startJob();
 }
 
 void soapOff() {
@@ -88,13 +112,12 @@ void shakeOn() {
 void shakeOff() {
 }
 
-void soundOn(void* params) {
-  SoundParams* soundParams = static_cast<SoundParams*>(params);
+void soundOn() {
+
   Serial.println("sound on.");
+  mp3Player.play(soundParams.soundId);
 
-  mp3Player.play(soundParams->soundId);
-
-  if(soundParams->triggerBird) {
+  if(soundParams.triggerBird) {
     Serial.println("Also doing Birdstuff");
     birdOut.startJob();
   }
@@ -108,14 +131,35 @@ void birdOutStart() {
   Serial.println("Bird out start");
   digitalWrite(birdMotor1Gnd_pin, HIGH);
   digitalWrite(birdMotor1Vcc_pin, LOW);
-
 }
 
 void birdOutEnd() {
   Serial.println("Bird out end");
   digitalWrite(birdMotor1Gnd_pin, LOW);
   digitalWrite(birdMotor1Vcc_pin, HIGH);
-  flap.startJob();
+  
+  //setup following chain
+  flapBreakParams.amount=2;
+  flapParams.amount=1;
+
+  //execute
+  if(flapBreakParams.amount > 0) {
+    flapBreak.startJob();
+  }
+
+}
+
+void birdInStart() {
+  Serial.println("Bird in start");
+  digitalWrite(birdMotor2Gnd_pin, HIGH);
+  digitalWrite(birdMotor2Vcc_pin, LOW);
+
+}
+
+void birdInEnd() {
+  Serial.println("Bird in end");
+  digitalWrite(birdMotor2Gnd_pin, LOW);
+  digitalWrite(birdMotor2Vcc_pin, HIGH);
 }
 
 void flapStart() {
@@ -127,12 +171,32 @@ void flapStart() {
 void flapEnd() {
   Serial.println("flap End");
   digitalWrite(birdFlap_pin, HIGH);
+
+  flapParams.amount = flapParams.amount - 1;
+
+  if(flapBreakParams.amount > 0) {
+    flapBreak.startJob();
+  } else {
+    birdIn.startJob();
+  }
 }
 
+void flapBreakStart(){
+  Serial.println("flapBreakStart");
 
-JobManager soap(550, 2000, soapOn, soapOff, true);
-JobManager room(550, 2000, roomOn, roomOff, true);
-JobManager shake(550, 2000, shakeOn, shakeOff);
+}
+
+void flapBreakEnd() {
+  Serial.println("flapBreakEnd");
+
+  flapBreakParams.amount = flapBreakParams.amount - 1;
+
+  if(flapParams.amount > 0) {
+    flap.startJob();
+  } else {
+    birdIn.startJob();
+  }
+}
 
 
 
@@ -183,7 +247,10 @@ void loop() {
   shake.handleJob();
   sound.handleJob();
   birdOut.handleJob();
+  birdIn.handleJob();
   flap.handleJob();
+  flapBreak.handleJob();
+
 
   //--------------------------------------
   if (handSensor_isOn) {

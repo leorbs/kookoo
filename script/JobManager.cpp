@@ -10,12 +10,6 @@ private:
   void (*enableFunction)();
   void (*disableFunction)();
 
-  // Pointers to enable function with parameters
-  void (*enableFunctionWithParams)(void*);
-
-  // Parameters for the enable function with parameters
-  void* enableFunctionParams;
-
   // Job duration and backoff duration in milliseconds
   uint32_t jobDuration;
   uint32_t backoffDuration;
@@ -46,41 +40,14 @@ public:
     backoffTimer.setTimeOutTime(backoffDuration);  // Set the backoff duration timeout
   }
 
-  // Overloaded constructor to handle enable function with parameters
-  JobManager(
-    uint32_t jobDurationMillis, 
-    uint32_t backoffDurationMillis, 
-    void (*enableFnWithParams)(void*), 
-    void* params, 
-    void (*disableFn)(), 
-    bool runOnceMode = false
-  ) : jobDuration(jobDurationMillis), 
-      backoffDuration(backoffDurationMillis), 
-      enableFunctionWithParams(enableFnWithParams), 
-      enableFunctionParams(params), 
-      disableFunction(disableFn), 
-      runOnceModeActive(runOnceMode) {
-    
-    jobTimer.setTimeOutTime(jobDuration);  // Set the job duration timeout
-    backoffTimer.setTimeOutTime(backoffDuration);  // Set the backoff duration timeout
-  }
-
-  //set new params and then start the job
-  void startJob(void* params) {
-    enableFunctionParams = params;
-    startJob();
-  }
-
   // Function to start the job if it's not running, not in backoff, and allowed by runOnce mode
   void startJob() {
     if (!isJobRunning && !isInBackoff && (!runOnceModeActive || !hasRunOnce)) {
       isJobRunning = true;
       hasRunOnce = true;  // Mark that the job has run once if in "run once" mode
-      if (enableFunction) {
-        enableFunction();  // Call the enable function when starting the job
-      } else if (enableFunctionWithParams) {
-        enableFunctionWithParams(enableFunctionParams);  // Call the enable function with parameters
-      }
+
+      enableFunction();  // Call the enable function when starting the job
+
       jobTimer.reset();  // Reset the job timer for the job duration
     }
   }
