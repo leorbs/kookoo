@@ -6,35 +6,33 @@
 #include "TimeBasedCounter.cpp"
 
 
-const uint8_t hand_pin = A0; // connect IR hand sensor module to Arduino pin A0
-const uint8_t room_pin = A1; // praesense sensor module to Arduino pin A1
-const uint8_t shake_pin = A2; // sensor module for tamper detection to Arduino pin A2
+#define MAIN_LOOP_TIME_BASE_MS	5
 
-const uint8_t LED1_pin = 9; //D9 LED
+#define HAND_PIN A0            // connect IR hand sensor module to Arduino pin A0
+#define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
+#define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
 
-const uint8_t pump_pin = 7; //D7 soap pump
+#define LED1_PIN 9             // D9 LED
+#define PUMP_PIN 7             // D7 soap pump
 
-const uint8_t birdFlap_pin = 6; //D6 bird flap 
+#define BIRD_FLAP_PIN 6        // D6 bird flap
 
-const uint8_t birdMotor1Gnd_pin = 5; //D5 
-const uint8_t birdMotor1Vcc_pin = 2; //D2
+#define BIRD_MOTOR1_GND_PIN 5  // D5 
+#define BIRD_MOTOR1_VCC_PIN 2  // D2
 
-const uint8_t birdMotor2Gnd_pin = 3; //D3 
-const uint8_t birdMotor2Vcc_pin = 4; //D4 
+#define BIRD_MOTOR2_GND_PIN 3  // D3 
+#define BIRD_MOTOR2_VCC_PIN 4  // D4
 
-const uint8_t DFPlayerRX_pin = 10; //D10 -> RX on arduino TX on DFPlayer
-const uint8_t DFPlayerTX_pin = 11; //D11 -> TX on arduino RX on DFPlayer
+#define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
+#define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-
-const unsigned int ledBlinkInterval = 1000;
-
-const unsigned int volume = 5; // sound volume 0-30 
-
-const unsigned int shakeSensitivity = 20; // up to 1024. The higher the number, the lower the sensitivity
+#define VOLUME 5               // sound volume 0-30
+#define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
 
-SoftwareSerial DFPlayerSoftwareSerial(DFPlayerRX_pin,DFPlayerTX_pin);// RX, TX
+SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
+SoftTimer mainLoopTimer;
 
 void soundOn();
 void soundOff();
@@ -96,7 +94,7 @@ JobManager ledOff(500, ledOffStart, ledOffEnd);
 
 void soapOn() {
   Serial.println("switch soap on");
-  digitalWrite(pump_pin, LOW);
+  digitalWrite(PUMP_PIN, LOW);
 
   // set new sound params for the sound job TEST
   Serial.print(sound.isJobActive());
@@ -128,7 +126,7 @@ void soapOn() {
 
 void soapOff() {
   Serial.println("switch soap off");
-  digitalWrite(pump_pin, HIGH);
+  digitalWrite(PUMP_PIN, HIGH);
 }
 
 void roomOn() {
@@ -194,14 +192,14 @@ void soundOff() {
 
 void birdOutStart() {
   Serial.println("Bird out start");
-  digitalWrite(birdMotor1Gnd_pin, HIGH);
-  digitalWrite(birdMotor1Vcc_pin, LOW);
+  digitalWrite(BIRD_MOTOR1_GND_PIN, HIGH);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, LOW);
 }
 
 void birdOutEnd() {
   Serial.println("Bird out end");
-  digitalWrite(birdMotor1Gnd_pin, LOW);
-  digitalWrite(birdMotor1Vcc_pin, HIGH);
+  digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
   
   //execute the chain
   if(flapBreakParams.amount > 0) {
@@ -214,27 +212,27 @@ void birdOutEnd() {
 
 void birdInStart() {
   Serial.println("Bird in start");
-  digitalWrite(birdMotor2Gnd_pin, HIGH);
-  digitalWrite(birdMotor2Vcc_pin, LOW);
+  digitalWrite(BIRD_MOTOR2_GND_PIN, HIGH);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, LOW);
 
 }
 
 void birdInEnd() {
   Serial.println("Bird in end");
-  digitalWrite(birdMotor2Gnd_pin, LOW);
-  digitalWrite(birdMotor2Vcc_pin, HIGH);
+  digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
 }
 
 void flapStart() {
   Serial.println("flap Start");
-  digitalWrite(birdFlap_pin, LOW);
+  digitalWrite(BIRD_FLAP_PIN, LOW);
   // analogWrite(birdFlap_pin, 50);
 
 }
 
 void flapEnd() {
   Serial.println("flap End");
-  digitalWrite(birdFlap_pin, HIGH);
+  digitalWrite(BIRD_FLAP_PIN, HIGH);
 
   flapParams.amount = flapParams.amount - 1;
 
@@ -266,33 +264,36 @@ void flapBreakEnd() {
 
 
 void setup() {
-  pinMode(hand_pin, INPUT);
-  pinMode(room_pin, INPUT);
-  pinMode(shake_pin, INPUT);
+  mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
+  mainLoopTimer.reset();
+
+  pinMode(HAND_PIN, INPUT);
+  pinMode(ROOM_PIN, INPUT);
+  pinMode(SHAKE_PIN, INPUT);
 
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(LED1_pin, OUTPUT);
+  pinMode(LED1_PIN, OUTPUT);
 
-  pinMode(pump_pin, OUTPUT);
-  digitalWrite(pump_pin, HIGH);
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, HIGH);
 
-  pinMode(birdFlap_pin, OUTPUT);
-  digitalWrite(birdFlap_pin, HIGH);
+  pinMode(BIRD_FLAP_PIN, OUTPUT);
+  digitalWrite(BIRD_FLAP_PIN, HIGH);
 
-  pinMode(birdMotor1Gnd_pin, OUTPUT);
-  digitalWrite(birdMotor1Gnd_pin, LOW);
-  pinMode(birdMotor1Vcc_pin, OUTPUT);
-  digitalWrite(birdMotor1Vcc_pin, HIGH);
-  pinMode(birdMotor2Gnd_pin, OUTPUT);
-  digitalWrite(birdMotor2Gnd_pin, LOW);
-  pinMode(birdMotor2Vcc_pin, OUTPUT);
-  digitalWrite(birdMotor2Vcc_pin, HIGH);
+  pinMode(BIRD_MOTOR1_GND_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
+  pinMode(BIRD_MOTOR1_VCC_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
+  pinMode(BIRD_MOTOR2_GND_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
+  pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
  
   
   DFPlayerSoftwareSerial.begin(9600);
   Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   mp3Player.begin(DFPlayerSoftwareSerial, false, true);
-  mp3Player.volume(volume); // Lautstärke auf 20 (0-30) setzen
+  mp3Player.volume(VOLUME); // Lautstärke auf 20 (0-30) setzen
 
 }
 
@@ -300,13 +301,15 @@ TimeBasedCounter timeBasedCounter;
 unsigned long currentTime = 0;
 
 void loop() {
-  delay(5);
+  while(!mainLoopTimer.hasTimedOut());
+  mainLoopTimer.reset();
+  
   currentTime = millis();
 
   // Sensor-Zustand überprüfen
-  bool handSensor_isOn = !digitalRead(hand_pin);
-  bool roomSensor_isOn = digitalRead(room_pin);
-  int shakeSensor_value = analogRead(shake_pin);
+  bool handSensor_isOn = !digitalRead(HAND_PIN);
+  bool roomSensor_isOn = digitalRead(ROOM_PIN);
+  int shakeSensor_value = analogRead(SHAKE_PIN);
 
   //display sensor1 state with buldin led
   digitalWrite(LED_BUILTIN, handSensor_isOn);
@@ -340,7 +343,7 @@ void loop() {
   }
   
 
-  if(shakeSensor_value > 20 && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
+  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
 
     bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
 
@@ -367,13 +370,13 @@ void loop() {
 }
 
 void ledOnStart() {
-  analogWrite(LED1_pin, 128);
+  analogWrite(LED1_PIN, 128);
 }
 void ledOnEnd() {
   ledOff.startJob();
 }
 void ledOffStart() {
-  digitalWrite(LED1_pin, LOW);
+  digitalWrite(LED1_PIN, LOW);
 }
 void ledOffEnd() {
   ledOn.startJob();
