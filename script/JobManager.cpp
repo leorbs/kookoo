@@ -80,6 +80,13 @@ public:
     }
   }
 
+  // Function to restart the job timer (can only restart the timer while the job is running)
+  void restartJobTimer() {
+    if (isJobRunning && !isInBackoff) {
+      jobTimer.reset();
+    }
+  }
+
   // Function to reset the backoff timer
   void renewBackoff() {
     if(isInBackoff && !backoffTimer.hasTimedOut()) {

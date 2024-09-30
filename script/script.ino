@@ -61,6 +61,10 @@ void ledOffEnd();
 struct SoundParams {
   int soundId;
   bool triggerBird;
+  uint32_t* flapBreakPattern;  // Pointer to an array of uint32_t
+  uint32_t* flapPattern;       // Pointer to an array of uint32_t
+  int flapBreakPatternSize;    // Size of the flapBreakPattern array
+  int flapPatternSize;         // Size of the flapPattern array
 };
 
 struct FlapParams {
@@ -71,9 +75,16 @@ struct FlapBreakParams {
   int amount;
 };
 
-SoundParams soundParams = {1, true};
-FlapParams flapParams = {1};
-FlapBreakParams flapBreakParams = {2};
+uint32_t flapBreakPattern_single[2] = {200,600};
+uint32_t flapPattern_single[1] =        {500};
+
+uint32_t flapBreakPattern_speak_pattern_1[7] = {500,400,300,800,400,500,1000};
+uint32_t flapPattern_speak_pattern_1[6] =        {100,50,  50, 600,50,1000};
+
+SoundParams soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
+
+uint8_t flapPattern_index = 0;
+uint8_t flapBreakPattern_index = 0;
 
 JobManager sound(550, soundOn, soundOff, false);
 
@@ -104,24 +115,8 @@ void soapOn() {
   Serial.println(" is the isJobActive");
 
   if(!sound.isJobActive()) {
-    //setup the bird chain
-    flapBreakParams.amount=2;
-    flapParams.amount=1;
-    soundParams = {1,true};
 
-    uint32_t birdCycleTime = 
-    birdOut.getJobDuration() + 
-    (flapBreakParams.amount * flapBreak.getJobDuration()) + 
-    (flapParams.amount * flap.getJobDuration()) +
-    birdIn.getJobDuration();
-
-    birdCycleTime = birdCycleTime + 50; //a bit more
-
-    Serial.print(birdCycleTime);
-    Serial.println(" is the birdCycleTime");
-
-    sound.setNewDurationTime(birdCycleTime);
-    //execute the chain
+    soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
     sound.startJob();
   }
 
@@ -137,24 +132,8 @@ void roomOn() {
   Serial.println("room On");
 
   if(!sound.isJobActive()) {
-    //setup the room chain
-    flapBreakParams.amount=5;
-    flapParams.amount=4;
-    soundParams = {2,true};
-
-    uint32_t birdCycleTime = 
-    birdOut.getJobDuration() + 
-    (flapBreakParams.amount * flapBreak.getJobDuration()) + 
-    (flapParams.amount * flap.getJobDuration()) +
-    birdIn.getJobDuration();
-
-    birdCycleTime = birdCycleTime + 50; //a bit more
-
-    Serial.print(birdCycleTime);
-    Serial.println(" is the birdCycleTime");
-
-    sound.setNewDurationTime(birdCycleTime);
     //execute the chain
+    soundParams = {2, true, flapBreakPattern_speak_pattern_1, flapPattern_speak_pattern_1, 7, 6};
     sound.startJob();
   }
 }
@@ -166,7 +145,8 @@ void shakeOn() {
   Serial.println("shake On");
   if(!sound.isJobActive()) {
 
-    soundParams = {3,false};
+    // ignore after false
+    soundParams = {3, false, flapBreakPattern_single, flapPattern_single, 2, 1};
 
     sound.setNewDurationTime(5000);
     //execute the chain
@@ -188,6 +168,33 @@ void soundOn() {
   if(soundParams.triggerBird) {
     Serial.println("Sound doing Birdstuff");
 
+    //setup the bird chain
+    uint32_t birdCycleTime = 0;
+
+    // Add all values from flapBreakPattern array
+    for (int i = 0; i < soundParams.flapBreakPatternSize; ++i) {
+        birdCycleTime += soundParams.flapBreakPattern[i];
+    }
+
+    // Add all values from flapPattern array
+    for (int i = 0; i < soundParams.flapPatternSize; ++i) {
+        birdCycleTime += soundParams.flapPattern[i];
+    }
+
+    birdCycleTime = birdCycleTime + birdOut.getJobDuration() + birdIn.getJobDuration();
+
+    birdCycleTime = birdCycleTime + 50; //a bit more
+
+    Serial.print(birdCycleTime);
+    Serial.println(" is the birdCycleTime");
+
+    sound.setNewDurationTime(birdCycleTime);
+    sound.restartJobTimer();
+
+    flapPattern_index = 0;
+    flapBreakPattern_index = 0;
+
+    //execute the bird chain
     birdOut.startJob();
   }
 
@@ -208,10 +215,10 @@ void birdOutEnd() {
   digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
   
   //execute the chain
-  if(flapBreakParams.amount > 0) {
+  if(soundParams.flapBreakPatternSize > soundParams.flapPatternSize) {
     flapBreak.startJob();
   } else {
-    birdIn.startJob();
+    flap.startJob();
   }
 
 }
@@ -229,45 +236,57 @@ void birdInEnd() {
   digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
 }
 
+
+// ========================================================================================================================
+
 void flapStart() {
   Serial.println("flap Start");
   digitalWrite(BIRD_FLAP_PIN, LOW);
-  // analogWrite(birdFlap_pin, 50);
 
+  flap.setNewDurationTime(soundParams.flapPattern[flapPattern_index]);
+  flap.restartJobTimer();
 }
 
 void flapEnd() {
   Serial.println("flap End");
   digitalWrite(BIRD_FLAP_PIN, HIGH);
 
-  flapParams.amount = flapParams.amount - 1;
+  flapPattern_index = flapPattern_index + 1;
 
-  //execute the chain
-  if(flapBreakParams.amount > 0) {
+  //check flap break possible
+  if(flapBreakPattern_index < soundParams.flapBreakPatternSize) {
     flapBreak.startJob();
   } else {
+    //no flap break anymore. Do now bird in
     birdIn.startJob();
   }
+
 }
 
 void flapBreakStart(){
   Serial.println("flapBreakStart");
+
+  flapBreak.setNewDurationTime(soundParams.flapBreakPattern[flapBreakPattern_index]);
+  flapBreak.restartJobTimer();
 
 }
 
 void flapBreakEnd() {
   Serial.println("flapBreakEnd");
 
-  flapBreakParams.amount = flapBreakParams.amount - 1;
+  flapBreakPattern_index = flapBreakPattern_index + 1;
 
-  //execute the chain
-  if(flapParams.amount > 0) {
+
+  //check flap possible
+  if(flapPattern_index < soundParams.flapPatternSize) {
     flap.startJob();
   } else {
+    //no flap anymore. Do now bird in
     birdIn.startJob();
   }
-}
 
+}
+// ========================================================================================================================
 
 void setup() {
   mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
