@@ -29,6 +29,8 @@
 #define VOLUME 6               // sound volume 0-30
 #define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
+#define LED_BRIGHTNESS 80     // 0-255
+
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
@@ -93,7 +95,7 @@ JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
 JobManager birdOut(240, birdOutStart, birdOutEnd);
 JobManager birdIn(260, birdInStart, birdInEnd);
 
-JobManager soap(550, 2000, soapOn, soapOff, true);
+JobManager soap(400, 2000, soapOn, soapOff, true);
 JobManager room(500, 60000, roomOn, roomOff, true, true);
 JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
@@ -320,6 +322,7 @@ void setup() {
   mp3Player.begin(DFPlayerSoftwareSerial, false, true);
   mp3Player.volume(VOLUME);
 
+  ledOn.startJob();
 }
 
 void loop() {
@@ -397,12 +400,14 @@ void loop() {
 }
 
 void ledOnStart() {
-  analogWrite(LED1_PIN, 128);
+  Serial.println("LED on");
+  analogWrite(LED1_PIN, LED_BRIGHTNESS);
 }
 void ledOnEnd() {
   ledOff.startJob();
 }
 void ledOffStart() {
+  Serial.println("LED off");
   digitalWrite(LED1_PIN, LOW);
 }
 void ledOffEnd() {
