@@ -1,350 +1,415 @@
 
 #include "Arduino.h"
-#include <SoftwareSerial.h>
+#include "SoftwareSerial.h"
 #include "DFRobotDFPlayerMini.h"
+#include "JobManager.cpp"
+#include "TimeBasedCounter.cpp"
 
 
-//-------------------------------------------
-// folgende Konstanten können angepasst werden. Die Zeiten sind in millisekunden.
+#define MAIN_LOOP_TIME_BASE_MS	5
 
-//sensor1 -> handsensor
-//sensor2 -> präsenzsensor
-//sensor2 -> shake sensor
-const int sensor1_pin = A0; // connect IR hand sensor module to Arduino pin A0
-const int sensor2_pin = A1; // praesense sensor module to Arduino pin A1
-const int sensor3_pin = A2; // sensor module for tamper detection to Arduino pin A2
-const int relay1_pin = 2; // relay 1 on pin D2 soap dispenser
-const int relay2_pin = 3; // relay 2 on pin D3 kookoo bird
-const int LED1_pin = A3; // LED
+#define HAND_PIN A0            // connect IR hand sensor module to Arduino pin A0
+#define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
+#define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
 
-const int DFPlayer_arduinoRX = 10; // pin D10 -> RX on arduino TX on DFPlayer
-const int DFPlayer_arduinoTX = 11; // pin D11 -> TX on arduino RX on DFPlayer
+#define LED1_PIN 9             // D9 LED
+#define PUMP_PIN 7             // D7 soap pump
 
-const unsigned  int sound1_playFor = 5000; //how long should sound 1 be played?
-const unsigned  int sound2_playFor = 3000; //how long should sound 2 be played?
-const unsigned  int sound3_playFor = 2000; //how long should sound 3 be played?
-const unsigned  int relay1_switchFor = 550; // how long should the relay1 be switched?
-const unsigned  int relay2_switchFor = 500; // how long should the relay2 be switched?
+#define BIRD_FLAP_PIN 6        // D6 bird flap
 
-const unsigned  int sound1_backoff = 10000 + relay2_switchFor; // how long should the sound 1 not be played after it has been played
-const unsigned  int sound2_backoff = 60000; // how long should the sound 2 not be played after it has been played
-const unsigned  int sound3_backoff = 15000; // how long should the sound 3 not be played after it has been played
-const unsigned  int relay1_backoff = 2000; // how long should the relay not be switched after it has been through a switch cycle
-const unsigned  int relay2_backoff = 10000 + sound1_playFor; // how long should the relay not be switched after it has been through a switch cycle
+#define BIRD_MOTOR1_GND_PIN 5  // D5 
+#define BIRD_MOTOR1_VCC_PIN 2  // D2
 
-const unsigned  int ledBlinkInterval = 1000;
+#define BIRD_MOTOR2_GND_PIN 3  // D3 
+#define BIRD_MOTOR2_VCC_PIN 4  // D4
 
-const unsigned  int volume = 30; // sound volume 0-30 
+#define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
+#define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-const unsigned  int shakeSensitivity = 20; // up to 1024. The higher the number, the lower the sensitivity
+#define VOLUME 6               // sound volume 0-30
+#define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
+
+#define LED_BRIGHTNESS 80     // 0-255
 
 
-
-// --------------------------------------------------
-//internal variables
-
-unsigned long sound1_lastPlayStart = 0;
-unsigned long sound1_lastPlayStop = 1;
-
-unsigned long sound2_lastPlayStart = 0;
-unsigned long sound2_lastPlayStop = 1;
-
-unsigned long sound3_lastPlayStart = 0;
-unsigned long sound3_lastPlayStop = 1;
-
-unsigned long relay1_lastTriggerOn = 0;
-unsigned long relay1_lastTriggerOff = 1;
-
-unsigned long relay2_lastTriggerOn = 0;
-unsigned long relay2_lastTriggerOff = 1;
-
-unsigned long led1_lastTriggerOn = 0;
-unsigned long led1_lastTriggerOff = 1;
-
-bool sensor1_lastState = false;
-bool sensor2_lastState = false;
-bool sensor3_lastState = false;
-
-static unsigned long currentTime;
-static unsigned long rememberShakeTime;
-bool shakeNeedsToBeHandled = false;
-
-SoftwareSerial DFPlayerSoftwareSerial(10,11);// RX, TX
+SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
+SoftTimer mainLoopTimer;
 
-//announce methodes we gonna use
-bool checkTimeOver(unsigned long lastTrigger, unsigned long triggerDelay);
-bool isCurrentlyInAction(unsigned long actionStart, unsigned long actionEnd);
-bool isCurrentlyNotInAction(unsigned long actionStart, unsigned long actionEnd);
-void switchSensor1RelatedStuffOn();
-void switchSensor2RelatedStuffOn();
-void switchSensor3RelatedStuffOn();
-void handleRelay1SwitchOn();
-void handleRelay1SwitchOff();
-void handleSound1Start();
-void handleSound1Stop();
-void handleSound2Start();
-void handleSound2Stop();
-void handleSound3Start();
-void handleSound3Stop();
-void ledSwitch();
+TimeBasedCounter timeBasedCounter;
+unsigned long currentTime = 0;
+
+void soundOn();
+void soundOff();
+void flapStart();
+void flapEnd();
+void birdOutStart();
+void birdOutEnd();
+void birdInStart();
+void birdInEnd();
+void flapBreakStart();
+void flapBreakEnd();
+void soapOn();
+void soapOff();
+void roomOn();
+void roomOff();
+void shakeOn();
+void shakeOff();
+void ledOnStart();
+void ledOnEnd();
+void ledOffStart();
+void ledOffEnd();
+
+struct SoundParams {
+  int soundId;
+  bool triggerBird;
+  uint32_t* flapBreakPattern;  // Pointer to an array of uint32_t
+  uint32_t* flapPattern;       // Pointer to an array of uint32_t
+  int flapBreakPatternSize;    // Size of the flapBreakPattern array
+  int flapPatternSize;         // Size of the flapPattern array
+};
+
+struct FlapParams {
+  int amount;
+};
+
+struct FlapBreakParams {
+  int amount;
+};
+
+uint32_t flapBreakPattern_single[2] = {200,600};
+uint32_t flapPattern_single[1] =        {500};
+
+uint32_t flapBreakPattern_speak_pattern_1[7] = {500,400,300,800,400,500,1000};
+uint32_t flapPattern_speak_pattern_1[6] =        {100,50,  50, 600,50,1000};
+
+SoundParams soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
+
+uint8_t flapPattern_index = 0;
+uint8_t flapBreakPattern_index = 0;
+
+JobManager sound(550, soundOn, soundOff, false);
+
+JobManager flap(500, flapStart, flapEnd);
+JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
+JobManager birdOut(240, birdOutStart, birdOutEnd);
+JobManager birdIn(260, birdInStart, birdInEnd);
+
+JobManager soap(400, 2000, soapOn, soapOff, true);
+JobManager room(500, 60000, roomOn, roomOff, true, true);
+JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
+
+// only sound will control bird
+// bird can only come out with sound
+// that means if one sound is running, there can be no other sound and therefore no other bird
+// sound execution time -> full bird cycle. Execution time mandatory to prevent double bird scenario
+
+JobManager ledOn(500, ledOnStart, ledOnEnd);
+JobManager ledOff(500, ledOffStart, ledOffEnd);
+
+
+void soapOn() {
+  Serial.println("switch soap on");
+  digitalWrite(PUMP_PIN, LOW);
+
+  // set new sound params for the sound job TEST
+  Serial.print(sound.isJobActive());
+  Serial.println(" is the isJobActive");
+
+  if(!sound.isJobActive()) {
+
+    soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
+    sound.startJob();
+  }
+
+}
+
+void soapOff() {
+  Serial.println("switch soap off");
+  digitalWrite(PUMP_PIN, HIGH);
+}
+
+void roomOn() {
+
+  Serial.println("room On");
+
+  if(!sound.isJobActive()) {
+    //execute the chain
+    soundParams = {2, true, flapBreakPattern_speak_pattern_1, flapPattern_speak_pattern_1, 7, 6};
+    sound.startJob();
+  }
+}
+
+void roomOff() {
+}
+
+void shakeOn() {
+  Serial.println("shake On");
+  if(!sound.isJobActive()) {
+
+    // ignore after false
+    soundParams = {3, false, flapBreakPattern_single, flapPattern_single, 2, 1};
+
+    sound.setNewDurationTime(5000);
+    //execute the chain
+    sound.startJob();
+  }
+}
+
+void shakeOff() {
+}
+
+void soundOn() {
+
+  Serial.println("sound on.");
+  Serial.print(soundParams.soundId);
+  Serial.println(" soundid playing");
+
+  mp3Player.play(soundParams.soundId);
+
+  if(soundParams.triggerBird) {
+    Serial.println("Sound doing Birdstuff");
+
+    //setup the bird chain
+    uint32_t birdCycleTime = 0;
+
+    // Add all values from flapBreakPattern array
+    for (int i = 0; i < soundParams.flapBreakPatternSize; ++i) {
+        birdCycleTime += soundParams.flapBreakPattern[i];
+    }
+
+    // Add all values from flapPattern array
+    for (int i = 0; i < soundParams.flapPatternSize; ++i) {
+        birdCycleTime += soundParams.flapPattern[i];
+    }
+
+    birdCycleTime = birdCycleTime + birdOut.getJobDuration() + birdIn.getJobDuration();
+
+    birdCycleTime = birdCycleTime + 50; //a bit more
+
+    Serial.print(birdCycleTime);
+    Serial.println(" is the birdCycleTime");
+
+    sound.setNewDurationTime(birdCycleTime);
+    sound.restartJobTimer();
+
+    flapPattern_index = 0;
+    flapBreakPattern_index = 0;
+
+    //execute the bird chain
+    birdOut.startJob();
+  }
+
+}
+
+void soundOff() {
+}
+
+void birdOutStart() {
+  Serial.println("Bird out start");
+  digitalWrite(BIRD_MOTOR1_GND_PIN, HIGH);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, LOW);
+}
+
+void birdOutEnd() {
+  Serial.println("Bird out end");
+  digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
+  
+  //execute the chain
+  if(soundParams.flapBreakPatternSize > soundParams.flapPatternSize) {
+    flapBreak.startJob();
+  } else {
+    flap.startJob();
+  }
+
+}
+
+void birdInStart() {
+  Serial.println("Bird in start");
+  digitalWrite(BIRD_MOTOR2_GND_PIN, HIGH);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, LOW);
+
+}
+
+void birdInEnd() {
+  Serial.println("Bird in end");
+  digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
+}
+
+
+// ========================================================================================================================
+
+void flapStart() {
+  Serial.println("flap Start");
+  digitalWrite(BIRD_FLAP_PIN, LOW);
+
+  flap.setNewDurationTime(soundParams.flapPattern[flapPattern_index]);
+  flap.restartJobTimer();
+}
+
+void flapEnd() {
+  Serial.println("flap End");
+  digitalWrite(BIRD_FLAP_PIN, HIGH);
+
+  flapPattern_index = flapPattern_index + 1;
+
+  //check flap break possible
+  if(flapBreakPattern_index < soundParams.flapBreakPatternSize) {
+    flapBreak.startJob();
+  } else {
+    //no flap break anymore. Do now bird in
+    birdIn.startJob();
+  }
+
+}
+
+void flapBreakStart(){
+  Serial.println("flapBreakStart");
+
+  flapBreak.setNewDurationTime(soundParams.flapBreakPattern[flapBreakPattern_index]);
+  flapBreak.restartJobTimer();
+
+}
+
+void flapBreakEnd() {
+  Serial.println("flapBreakEnd");
+
+  flapBreakPattern_index = flapBreakPattern_index + 1;
+
+
+  //check flap possible
+  if(flapPattern_index < soundParams.flapPatternSize) {
+    flap.startJob();
+  } else {
+    //no flap anymore. Do now bird in
+    birdIn.startJob();
+  }
+
+}
+// ========================================================================================================================
 
 void setup() {
-  pinMode(sensor1_pin, INPUT);
-  pinMode(sensor2_pin, INPUT);
-  pinMode(sensor3_pin, INPUT);
-  pinMode(relay1_pin, OUTPUT);
-  pinMode(relay2_pin, OUTPUT);
+  mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
+  mainLoopTimer.reset();
+
+  pinMode(HAND_PIN, INPUT);
+  pinMode(ROOM_PIN, INPUT);
+  pinMode(SHAKE_PIN, INPUT);
+
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(LED1_pin, OUTPUT);
+  pinMode(LED1_PIN, OUTPUT);
 
-  digitalWrite(relay1_pin, HIGH);
-  digitalWrite(relay2_pin, HIGH);
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, HIGH);
 
-  //Serial.begin(9600);
+  pinMode(BIRD_FLAP_PIN, OUTPUT);
+  digitalWrite(BIRD_FLAP_PIN, HIGH);
+
+  pinMode(BIRD_MOTOR1_GND_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
+  pinMode(BIRD_MOTOR1_VCC_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
+  pinMode(BIRD_MOTOR2_GND_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
+  pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
+ 
+  
   DFPlayerSoftwareSerial.begin(9600);
   Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   mp3Player.begin(DFPlayerSoftwareSerial, false, true);
-  mp3Player.volume(volume); // Lautstärke auf 20 (0-30) setzen
+  mp3Player.volume(VOLUME);
 
-  delay(500);
+  ledOn.startJob();
 }
-
 
 void loop() {
-  delay(20);
+  while(!mainLoopTimer.hasTimedOut());
+  mainLoopTimer.reset();
+  
+  currentTime = millis();
+
   // Sensor-Zustand überprüfen
-  bool sensor1_isOn = !digitalRead(sensor1_pin);
-  bool sensor2_isOn = digitalRead(sensor2_pin);
-  int sensor3_value = analogRead(sensor3_pin);
+  bool handSensor_isOn = !digitalRead(HAND_PIN);
+  bool roomSensor_isOn = digitalRead(ROOM_PIN);
+  int shakeSensor_value = analogRead(SHAKE_PIN);
 
   //display sensor1 state with buldin led
-  digitalWrite(LED_BUILTIN, sensor1_isOn);
+  digitalWrite(LED_BUILTIN, handSensor_isOn);
 
-  ledSwitch();
-
-  currentTime = millis() + 100000; //give it a little headstart / offset
-
-  if(sensor1_isOn && sensor1_lastState == false) {
-    Serial.print("Sensor_1 is on ");
-    Serial.println(currentTime);
-    switchSensor1RelatedStuffOn();
-    sensor1_lastState = true;
-  } else if(!sensor1_isOn && sensor1_lastState == true) {
-    sensor1_lastState = false;
-  }
-
-  if(sensor2_isOn && sensor2_lastState == false) {
-    Serial.print("Sensor_2 is on ");
-    Serial.println(currentTime);
-    switchSensor2RelatedStuffOn();
-    sensor2_lastState = true;
-  } else if(!sensor2_isOn && sensor2_lastState == true) {
-    sensor2_lastState = false;
-  }
-
-  //shake sensor:
-  // detect shake
-  // see if x time before or wait for x time after for soap dispenser
-  // if no soap dispenser active, then start sound
-
-  if(sensor3_value > shakeSensitivity && sensor3_lastState == false && !shakeNeedsToBeHandled) {
-    Serial.print("Sensor_3 shake detected. Shake amount: ");
-    Serial.print(sensor3_value);
-    Serial.print(" time: ");
-    Serial.println(currentTime);
-    rememberShakeTime = currentTime;
-    shakeNeedsToBeHandled = true;
-    sensor3_lastState = true;
-  } else if(sensor3_value <= shakeSensitivity && sensor3_lastState == true) {
-    sensor3_lastState = false;
-  }
-
-  
-  //TODO: shorten time
-
-  if(shakeNeedsToBeHandled) {
-    if( currentTime - relay1_lastTriggerOn < 10 * 1000) {
-      //there was a soap dispense event less than 30 secends ago and shake doesnt need to be handeled
-      shakeNeedsToBeHandled = false;
-    } else if (currentTime - rememberShakeTime > 5 * 1000) {
-      //if the shaketime is 5 seconds ago with no soap dispenser event happening
-      //then sound alarm
-      switchSensor3RelatedStuffOn();
-      shakeNeedsToBeHandled = false;
-    }
-  }
-
-  handleRelay1SwitchOff();
-  handleRelay2SwitchOff();
-  handleSound1Stop();
-  handleSound2Stop();
-  handleSound3Stop();
-}
-
-void switchSensor1RelatedStuffOn() {
-  //pretent like sound 2 has just been stopped, so it wont play for the backoff time amount of sound 2
-  sound2_lastPlayStop = currentTime;
-  
-  handleRelay1SwitchOn();
-  handleRelay2SwitchOn();
-  //handleSound1Start();
-}
-
-void switchSensor2RelatedStuffOn() {
-  handleSound2Start();
-}
-
-void switchSensor3RelatedStuffOn() {
-  handleSound3Start();
-}
-
-// Die folgenden Methoden funktionieren alle gleich:
-// Es wird geprüft, ob man gerade eine aktion ausführt.
-// Eine Aktion kann nur ausgeführt werden, wenn sie gerade nicht ausgeführt wird
-// Dann wird geschaut, ob eine gewisse Zeit um ist, sodass eine Aktion nicht zu schnell hintereinander ausgeführt werden kann
-// sollte beides gegebnen sein, dann wird die Aktion ausgeführt (switch relay/play/pause)
-
-// das gleich Prinzip gilt auch für Aktionen, die gerade ausgeführt werden und ausgeschaltet werden sollen.
-
-void handleRelay1SwitchOn() {
-  if(isCurrentlyNotInAction(relay1_lastTriggerOn, relay1_lastTriggerOff)) {
-    //relay can be switched on
-    if(checkTimeOver(relay1_lastTriggerOff, relay1_backoff)) {
-      Serial.println("switch soap on");
-      digitalWrite(relay1_pin, LOW); 
-      relay1_lastTriggerOn = currentTime;
-    }
-  }
-}
-
-void handleRelay1SwitchOff() {
-  if(isCurrentlyInAction(relay1_lastTriggerOn, relay1_lastTriggerOff)) {
-    //relay can be switched off
-    if(checkTimeOver(relay1_lastTriggerOn, relay1_switchFor)) {
-      Serial.println("switch soap off");
-      digitalWrite(relay1_pin, HIGH); 
-      relay1_lastTriggerOff = currentTime;
-    }
-  }
-}
-
-void handleRelay2SwitchOn() {
-  if(isCurrentlyNotInAction(relay2_lastTriggerOn, relay2_lastTriggerOff)) {
-    //relay can be switched on
-    if(checkTimeOver(relay2_lastTriggerOff, relay2_backoff)) {
-      Serial.println("switch bird on");
-      digitalWrite(relay2_pin, LOW); 
-      relay2_lastTriggerOn = currentTime;
-    }
-  }
-}
-
-void handleRelay2SwitchOff() {
-  if(isCurrentlyInAction(relay2_lastTriggerOn, relay2_lastTriggerOff)) {
-    //relay can be switched off
-    if(checkTimeOver(relay2_lastTriggerOn, relay2_switchFor)) {
-      Serial.println("switch bird off");
-      digitalWrite(relay2_pin, HIGH); 
-      relay2_lastTriggerOff = currentTime;
-    }
-  }
-}
-
-void handleSound1Start(){
-  if(isCurrentlyNotInAction(sound1_lastPlayStart, sound1_lastPlayStop)) {
-    //sound can be started
-    if(checkTimeOver(sound1_lastPlayStop, sound1_backoff)) {
-      //start sound1
-      Serial.println("start sound1");
-      mp3Player.play(1);
-      sound1_lastPlayStart = currentTime;
-    }
-  }
-}
-
-void handleSound1Stop() {
-  if(isCurrentlyInAction(sound1_lastPlayStart, sound1_lastPlayStop)) {
-    //sound can be stopped
-    if(checkTimeOver(sound1_lastPlayStart, sound1_playFor)) {
-      Serial.println("stop sound1");
-      mp3Player.stop();
-      sound1_lastPlayStop = currentTime;
-    }
-  }
-}
-
-void handleSound2Start() {
-  if(isCurrentlyNotInAction(sound2_lastPlayStart, sound2_lastPlayStop))  {
-    
-    //sound can be started
-    if(checkTimeOver(sound2_lastPlayStop, sound2_backoff)) {
-      Serial.println("start sound2");
-      mp3Player.play(2);
-      sound2_lastPlayStart = currentTime;
-    }
-  }
-}
-
-void handleSound2Stop() {
-  if(isCurrentlyInAction(sound2_lastPlayStart, sound2_lastPlayStop)) {
-    //sound can be stopped
-    if(checkTimeOver(sound2_lastPlayStart, sound2_playFor)) {
-      Serial.println("stop sound2");
-      mp3Player.stop();
-      sound2_lastPlayStop = currentTime;
-    }
-  }
-}
-
-void handleSound3Start() {
-  if(isCurrentlyNotInAction(sound3_lastPlayStart, sound3_lastPlayStop))  {
-    //sound can be started
-    if(checkTimeOver(sound3_lastPlayStop, sound3_backoff)) {
-      Serial.println("start sound3");
-      mp3Player.play(3);
-      sound3_lastPlayStart = currentTime;
-    }
-  }
-}
-
-void handleSound3Stop() {
-  if(isCurrentlyInAction(sound3_lastPlayStart, sound3_lastPlayStop)) {
-    //sound can be stopped
-    if(checkTimeOver(sound3_lastPlayStart, sound3_playFor)) {
-      Serial.println("stop sound3");
-      mp3Player.stop();
-      sound3_lastPlayStop = currentTime;
-    }
-  }
-}
+  soap.handleJob();
+  room.handleJob();
+  shake.handleJob();
+  sound.handleJob();
+  birdOut.handleJob();
+  birdIn.handleJob();
+  flap.handleJob();
+  flapBreak.handleJob();
+  ledOn.handleJob();
+  ledOff.handleJob();
 
 
-void ledSwitch() {
-  if(isCurrentlyInAction(led1_lastTriggerOn,led1_lastTriggerOff)) {
-    if(checkTimeOver(led1_lastTriggerOn, ledBlinkInterval)) {
-      //Serial.println("switch led off");
-      digitalWrite(LED1_pin, LOW); 
-      led1_lastTriggerOff = currentTime;
-    }
+  //--------------------------------------
+  if (handSensor_isOn) {
+    soap.startJob();
+    timeBasedCounter.reset(); //shake is allowed when there is normal usage
+    room.renewBackoff(); // when someone uses the soap, we dont need to execute the room procedure
   } else {
-    if(checkTimeOver(led1_lastTriggerOff, ledBlinkInterval)) {
-      //Serial.println("switch led on");
-      digitalWrite(LED1_pin, HIGH); 
-      led1_lastTriggerOn = currentTime;
+    soap.resetJob();
+  }
+
+  if (roomSensor_isOn) {
+    room.startJob();
+    room.renewBackoff(); // this renewes the backoff when someone is constantly in the room. The "room experience" is only for when you enter the room
+  } else {
+    room.resetJob();
+  }
+
+  // new idea:
+  // add the analog signal to a counter
+  // decrease counter in each loop
+  // if counter too high, then tilt
+  
+
+  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
+
+    bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
+
+    // Serial.println("================");
+    // Serial.print(wereThereMultipleShakeIncidents);
+    // Serial.println(" = wereThereMultipleShakeIncidents");
+    // Serial.print(timeBasedCounter.getLatestTime());
+    // Serial.println(" = latest time");
+    // Serial.print(currentTime);
+    // Serial.println(" = current time");
+
+    // Serial.print("shake detected: shake value ");
+    // Serial.println(shakeSensor_value);
+    // Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
+    // Serial.println(" is the current shakes detected");
+    // Serial.println("================");
+
+
+    if(wereThereMultipleShakeIncidents) {
+      shake.startJob();
     }
   }
+
 }
 
-bool checkTimeOver(unsigned long lastTrigger, unsigned long triggerDelay) {
-  return lastTrigger + triggerDelay < currentTime;
+void ledOnStart() {
+  Serial.println("LED on");
+  analogWrite(LED1_PIN, LED_BRIGHTNESS);
 }
-
-bool isCurrentlyInAction(unsigned long actionStart, unsigned long actionEnd) {
-  return actionStart >= actionEnd;
+void ledOnEnd() {
+  ledOff.startJob();
 }
-
-bool isCurrentlyNotInAction(unsigned long actionStart, unsigned long actionEnd) {
-  return ! isCurrentlyInAction(actionStart, actionEnd);
+void ledOffStart() {
+  Serial.println("LED off");
+  digitalWrite(LED1_PIN, LOW);
 }
-
+void ledOffEnd() {
+  ledOn.startJob();
+}
