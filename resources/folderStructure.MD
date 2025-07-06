@@ -3,7 +3,19 @@ Format the MicroUSB in Fat32, standard allocation.
 Partitioning table should be in MBR (to be verified).
 ## Files
 
-Use only files with codecs that the DFPlayer Chip can play.
+Use only files with codecs that the DFPlayer Chip can play. 
+
+One known codec is following:
+- Open Audacity and mark a section you want to export.
+- Press STRG + Shift + E
+  - Format: WAV
+  - Channels: Mono
+  - Sample Rate: 44100Hz
+  - Encoding: Signed 16-bit PCM
+- Export Range: current section
+- Export!
+
+![img.png](img.png)
 
 
 ## Folder Structure

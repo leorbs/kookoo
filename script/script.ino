@@ -5,6 +5,9 @@
 #include "TimeBasedCounter.cpp"
 #include "BirdFlapGenerator.h"
 
+// comment out this line, if you want to show logs on serial:
+// #define NDEBUG
+
 
 #define MAIN_LOOP_TIME_BASE_MS	5
 
@@ -27,10 +30,10 @@
 #define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-#define VOLUME 26              // sound volume 0-30
+#define VOLUME 23              // sound volume 0-30
 #define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
-#define LED_BRIGHTNESS 80      // 0-255
+#define LED_BRIGHTNESS 150      // 0-255
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
@@ -71,8 +74,8 @@ void ledOffStart();
 void ledOffEnd();
 
 
-const uint16_t flapBreakPattern_single[] PROGMEM = {200, 600};
-const uint16_t flapPattern_single[] PROGMEM =        {500};
+const uint16_t flapBreakPattern_single[] = {200, 600};
+const uint16_t flapPattern_single[] =        {500};
 
 SoundParams soundParams;
 
@@ -111,6 +114,8 @@ void soapOn() {
 
     soundParams.folderId = FOLDER_STANDARD_BIRD_SOUND;
     soundParams.triggerBird = true;
+    Serial.print(F(" setting soundParams.flapBreakPattern. flapBreakPattern_single[0]: "));
+    Serial.println(flapBreakPattern_single[0]);
     soundParams.flapBreakPattern = flapBreakPattern_single;
     soundParams.flapPattern = flapPattern_single;
     soundParams.flapBreakPatternSize = 2;
@@ -133,7 +138,7 @@ void roomOn() {
   if(!sound.isJobActive()) {
     //execute the chain
     generateSpeechLikeFlappingPattern(soundParams);
-    soundParams.folderId = FOLDER_ROOM_START;
+    soundParams.folderId = currentRoomFolder;
     soundParams.triggerBird = true;
 
     sound.startJob();
@@ -235,7 +240,9 @@ void birdInEnd() {
 // ========================================================================================================================
 
 void flapStart() {
-  Serial.println(F("flap Start"));
+  Serial.print(F("flap Start"));
+  Serial.println(soundParams.flapPattern[flapPattern_currentIndex]);
+
   digitalWrite(BIRD_FLAP_PIN, LOW);
 
   flap.setNewDurationTime(soundParams.flapPattern[flapPattern_currentIndex]);
@@ -260,16 +267,7 @@ void flapEnd() {
 
 void flapBreakStart(){
   Serial.print(F("flapBreakStart "));
-
-  Serial.print(F("setting timer of flap break to "));
   Serial.println(soundParams.flapBreakPattern[flapBreakPattern_currentIndex]);
-
-  Serial.print(F("current flapBreakPattern_currentIndex "));
-  Serial.println(flapBreakPattern_currentIndex);
-
-  
-  Serial.print(F("current flapBreakPattern_single[0] "));
-  Serial.println(flapBreakPattern_single[0]);
 
   flapBreak.setNewDurationTime(soundParams.flapBreakPattern[flapBreakPattern_currentIndex]);
   flapBreak.restartJobTimer();
@@ -324,9 +322,12 @@ void setup() {
   //initialize randomness so it is not every time the same
   randomSeed(analogRead(RNG_SEED_PIN));
 
+  #ifdef NDEBUG
+    Serial.begin(9600);
+  #endif
+
   //mp3 player stuff
-  DFPlayerSoftwareSerial.begin(9600);
-  Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
+  DFPlayerSoftwareSerial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   mp3Player.begin(DFPlayerSoftwareSerial, true, false);
   mp3Player.setTimeOut(2000);
 
@@ -493,14 +494,14 @@ void loop() {
 }
 
 void ledOnStart() {
-  Serial.println(F("LED on"));
+  // Serial.println(F("LED on"));
   analogWrite(LED1_PIN, LED_BRIGHTNESS);
 }
 void ledOnEnd() {
   ledOff.startJob();
 }
 void ledOffStart() {
-  Serial.println(F("LED off"));
+  // Serial.println(F("LED off"));
   digitalWrite(LED1_PIN, LOW);
 }
 void ledOffEnd() {
