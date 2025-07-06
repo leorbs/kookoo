@@ -1,49 +1,48 @@
+#include <Arduino.h>
 
 class TimeBasedCounter {
 private:
-  unsigned long times[3];
-  unsigned long withinTime = 5000;
+  uint16_t times[3];            // Only stores ms within 60s
+  const uint16_t withinTime = 5000; // 5 seconds
 
 public:
   TimeBasedCounter() : times{0, 0, 0} {}
 
-  bool addTimeAndCheck(unsigned long currentTime) {
-    for( unsigned int i = 0; i < sizeof(times)/sizeof(times[0]); i = i + 1 ) {
-      if(currentTime > times[i] + withinTime) {
+  bool addTimeAndCheck(uint16_t currentTime) {
+    for (uint8_t i = 0; i < 3; i++) {
+      if ((uint16_t)(currentTime - times[i]) > withinTime) {
         times[i] = currentTime;
         return false;
       }
     }
 
     reset();
-    //no slot in array found where we can remember time. That means there have to be sizeof(times)/sizeof(times[0]) instances of calls to this function
-    return true;
+    return true; // All slots are within window
   }
 
   void reset() {
-    for( unsigned int i = 0; i < sizeof(times)/sizeof(times[0]); i = i + 1 ) {
+    for (uint8_t i = 0; i < 3; i++) {
       times[i] = 0;
     }
   }
 
-  int getCurrentShakeCounter(unsigned long currentTime){
-    int counter = 0;
-    for( unsigned int i = 0; i < sizeof(times)/sizeof(times[0]); i = i + 1 ) {
-      if(currentTime < times[i] + withinTime) {
-        counter = counter + 1;
+  uint8_t getCurrentShakeCounter(uint16_t currentTime) {
+    uint8_t counter = 0;
+    for (uint8_t i = 0; i < 3; i++) {
+      if ((uint16_t)(currentTime - times[i]) <= withinTime) {
+        counter++;
       }
     }
     return counter;
   }
 
-  unsigned long getLatestTime(){
-    unsigned long newest = 0;
-    for( unsigned int i = 0; i < sizeof(times)/sizeof(times[0]); i = i + 1 ) {
-      if(times[i] > newest) {
+  uint16_t getLatestTime() {
+    uint16_t newest = 0;
+    for (uint8_t i = 0; i < 3; i++) {
+      if (times[i] > newest) {
         newest = times[i];
       }
     }
     return newest;
   }
-
 };

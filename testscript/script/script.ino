@@ -1,29 +1,44 @@
+#include <DFPlayerMini_Fast.h>
 
-#include "Arduino.h"
-#include "SoftwareSerial.h"
 
-const int sensor1_pin = A7;
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(10, 11); // RX, TX
 
-const int sensor2_pin = A5;
-const int sensor3_pin = A4;
 
-int val = 0;
+DFPlayerMini_Fast myMP3;
 
-void setup() {
-  Serial.begin(9600);           //  setup serial
-  pinMode(sensor3_pin, INPUT);    
+void setup()
+{
+  Serial.begin(9600);
+
+
+  mySerial.begin(9600);
+  myMP3.begin(mySerial, true, 5000);
+
+  mySerial.listen();
+  myMP3.setTimeout(5000);
+
+  
+  delay(1000);
+  
+  Serial.println("Setting volume to max");
+  myMP3.volume(20);
+
+  for (int i = 0; i <= 5; i++) {
+    Serial.print(F("Folder "));
+    Serial.print(i);
+    Serial.print(F(" has "));
+    Serial.print(myMP3.numTracksInFolder(i));
+    Serial.println(F(" files in it."));
+  }
+  
+  Serial.println("Looping track 1");
+  myMP3.loop(1);
+
+
 }
 
-void loop() {
-  delay(10);
-
-//  val = analogRead(sensor2_pin);  // read the input pin
-
-
-  val = digitalRead(sensor3_pin);
-
-  if( val == 1)
-    Serial.println(val);          // debug value
-  else 
-    Serial.println(" ");
+void loop()
+{
+  //do nothing
 }
