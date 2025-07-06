@@ -11,8 +11,8 @@ private:
   void (*disableFunction)();
 
   // Job duration and backoff duration in milliseconds
-  uint32_t jobDuration;
-  uint32_t backoffDuration;
+  uint16_t jobDuration;
+  uint16_t backoffDuration;
 
   // Internal state of job
   bool isJobRunning = false;
@@ -25,8 +25,8 @@ private:
 public:
   // Constructor to initialize the JobManager with job duration, backoff time, and function pointers
   JobManager(
-    uint32_t jobDurationMillis, 
-    uint32_t backoffDurationMillis, 
+    uint16_t jobDurationMillis, 
+    uint16_t backoffDurationMillis, 
     void (*enableFn)(), 
     void (*disableFn)(), 
     bool runOnceMode = false,
@@ -47,7 +47,7 @@ public:
 
     // Constructor to initialize the JobManager with job duration, backoff time, and function pointers
   JobManager(
-    uint32_t jobDurationMillis, 
+    uint16_t jobDurationMillis, 
     void (*enableFn)(), 
     void (*disableFn)(), 
     bool runOnceMode = false
@@ -95,21 +95,26 @@ public:
 
   }
 
-  // Function to check and handle the job and backoff in loop()
-  void handleJob() {
-    // Check if the job has timed out
-    if (isJobRunning && jobTimer.hasTimedOut()) {
-      // Disable the job
+  void endJob() {
+    if(isJobRunning) {
       if (disableFunction) {
         disableFunction();  // Call the disable function when stopping the job
       }
       isJobRunning = false;
+    }
 
-      if(backoffDuration != 0) {
+    if(backoffDuration != 0) {
         isInBackoff = true;  // Enter backoff state
         backoffTimer.reset();  // Reset the backoff timer
       }
 
+  }
+
+  // Function to check and handle the job and backoff in loop()
+  void handleJob() {
+    // Check if the job has timed out
+    if (isJobRunning && jobTimer.hasTimedOut()) {
+      endJob();
     }
 
     // Check if backoff has ended
@@ -119,29 +124,29 @@ public:
   }
 
   // Utility functions to get remaining job or backoff time
-  uint32_t getRemainingJobTime() {
+  uint16_t getRemainingJobTime() {
     return jobTimer.getRemainingTime();
   }
 
-  uint32_t getRemainingBackoffTime() {
+  uint16_t getRemainingBackoffTime() {
     return backoffTimer.getRemainingTime();
   }
 
-  void setNewDurationTime(uint32_t newDuration){
+  void setNewDurationTime(uint16_t newDuration){
     jobDuration = newDuration;
     jobTimer.setTimeOutTime(jobDuration);
   }
 
-  void setNewBackoffTime(uint32_t newBackoffDuration){
+  void setNewBackoffTime(uint16_t newBackoffDuration){
     backoffDuration = newBackoffDuration;
     backoffTimer.setTimeOutTime(backoffDuration);
   }
 
-  uint32_t getJobDuration(){
+  uint16_t getJobDuration(){
     return jobDuration;
   }
 
-  uint32_t getBackoffDuration(){
+  uint16_t getBackoffDuration(){
     return backoffDuration;
   }
 

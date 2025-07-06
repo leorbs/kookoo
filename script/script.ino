@@ -1,9 +1,9 @@
-
 #include "Arduino.h"
 #include "SoftwareSerial.h"
 #include "DFRobotDFPlayerMini.h"
 #include "JobManager.cpp"
 #include "TimeBasedCounter.cpp"
+#include "BirdFlapGenerator.h"
 
 
 #define MAIN_LOOP_TIME_BASE_MS	5
@@ -11,6 +11,7 @@
 #define HAND_PIN A0            // connect IR hand sensor module to Arduino pin A0
 #define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
 #define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
+#define RNG_SEED_PIN A3        // Used to initialize the randomnes A3
 
 #define LED1_PIN 9             // D9 LED
 #define PUMP_PIN 7             // D7 soap pump
@@ -26,15 +27,24 @@
 #define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-#define VOLUME 6               // sound volume 0-30
+#define VOLUME 26              // sound volume 0-30
 #define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
-#define LED_BRIGHTNESS 80     // 0-255
+#define LED_BRIGHTNESS 80      // 0-255
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
 SoftTimer mainLoopTimer;
+
+#define FOLDER_STANDARD_BIRD_SOUND 1
+#define FOLDER_SHAKE_SENSOR_ACTIVATED 2
+#define FOLDER_ROOM_START 3
+#define FOLDER_ROOM_END 13
+
+const uint8_t maxFolders = FOLDER_ROOM_END;
+uint8_t folderFileCounts[maxFolders + 1]; // Index 1-13 used
+uint8_t currentRoomFolder = FOLDER_ROOM_START;
 
 TimeBasedCounter timeBasedCounter;
 unsigned long currentTime = 0;
@@ -60,35 +70,16 @@ void ledOnEnd();
 void ledOffStart();
 void ledOffEnd();
 
-struct SoundParams {
-  int soundId;
-  bool triggerBird;
-  uint32_t* flapBreakPattern;  // Pointer to an array of uint32_t
-  uint32_t* flapPattern;       // Pointer to an array of uint32_t
-  int flapBreakPatternSize;    // Size of the flapBreakPattern array
-  int flapPatternSize;         // Size of the flapPattern array
-};
 
-struct FlapParams {
-  int amount;
-};
+const uint16_t flapBreakPattern_single[] PROGMEM = {200, 600};
+const uint16_t flapPattern_single[] PROGMEM =        {500};
 
-struct FlapBreakParams {
-  int amount;
-};
+SoundParams soundParams;
 
-uint32_t flapBreakPattern_single[2] = {200,600};
-uint32_t flapPattern_single[1] =        {500};
+int flapPattern_currentIndex = 0;
+int flapBreakPattern_currentIndex = 0;
 
-uint32_t flapBreakPattern_speak_pattern_1[7] = {500,400,300,800,400,500,1000};
-uint32_t flapPattern_speak_pattern_1[6] =        {100,50,  50, 600,50,1000};
-
-SoundParams soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
-
-uint8_t flapPattern_index = 0;
-uint8_t flapBreakPattern_index = 0;
-
-JobManager sound(550, soundOn, soundOff, false);
+JobManager sound(15000, 400, soundOn, soundOff, false, false); //backoff is the safety time for bird termination
 
 JobManager flap(500, flapStart, flapEnd);
 JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
@@ -109,33 +100,42 @@ JobManager ledOff(500, ledOffStart, ledOffEnd);
 
 
 void soapOn() {
-  Serial.println("switch soap on");
+  Serial.println(F("switch soap on"));
   digitalWrite(PUMP_PIN, LOW);
 
   // set new sound params for the sound job TEST
   Serial.print(sound.isJobActive());
-  Serial.println(" is the isJobActive");
+  Serial.println(F(" is the isJobActive"));
 
   if(!sound.isJobActive()) {
 
-    soundParams = {1, true, flapBreakPattern_single, flapPattern_single, 2, 1};
+    soundParams.folderId = FOLDER_STANDARD_BIRD_SOUND;
+    soundParams.triggerBird = true;
+    soundParams.flapBreakPattern = flapBreakPattern_single;
+    soundParams.flapPattern = flapPattern_single;
+    soundParams.flapBreakPatternSize = 2;
+    soundParams.flapPatternSize = 1;
+
     sound.startJob();
   }
 
 }
 
 void soapOff() {
-  Serial.println("switch soap off");
+  Serial.println(F("switch soap off"));
   digitalWrite(PUMP_PIN, HIGH);
 }
 
 void roomOn() {
 
-  Serial.println("room On");
+  Serial.println(F("room On"));
 
   if(!sound.isJobActive()) {
     //execute the chain
-    soundParams = {2, true, flapBreakPattern_speak_pattern_1, flapPattern_speak_pattern_1, 7, 6};
+    generateSpeechLikeFlappingPattern(soundParams);
+    soundParams.folderId = FOLDER_ROOM_START;
+    soundParams.triggerBird = true;
+
     sound.startJob();
   }
 }
@@ -144,13 +144,17 @@ void roomOff() {
 }
 
 void shakeOn() {
-  Serial.println("shake On");
+  Serial.println(F("shake On"));
   if(!sound.isJobActive()) {
 
-    // ignore after false
-    soundParams = {3, false, flapBreakPattern_single, flapPattern_single, 2, 1};
+    // flaps get ignored because trigger bird is false
+    soundParams.folderId = FOLDER_SHAKE_SENSOR_ACTIVATED;
+    soundParams.triggerBird = false;
+    soundParams.flapBreakPattern = flapBreakPattern_single;
+    soundParams.flapPattern = flapPattern_single;
+    soundParams.flapBreakPatternSize = 2;
+    soundParams.flapPatternSize = 1;
 
-    sound.setNewDurationTime(5000);
     //execute the chain
     sound.startJob();
   }
@@ -161,40 +165,29 @@ void shakeOff() {
 
 void soundOn() {
 
-  Serial.println("sound on.");
-  Serial.print(soundParams.soundId);
-  Serial.println(" soundid playing");
+  Serial.println(F("sound on."));
+  Serial.print(soundParams.folderId);
+  Serial.println(F(" folderId playing"));
 
-  mp3Player.play(soundParams.soundId);
+  
+  int count = folderFileCounts[soundParams.folderId];
+  uint8_t fileNum = random(1, count + 1);
+  Serial.print(F("Playing file "));
+  Serial.print(fileNum);
+  Serial.print(F(" from folder "));
+  Serial.println(soundParams.folderId);
+  mp3Player.playFolder(soundParams.folderId, fileNum);
 
   if(soundParams.triggerBird) {
-    Serial.println("Sound doing Birdstuff");
+    Serial.println(F("Sound doing Birdstuff"));
 
-    //setup the bird chain
-    uint32_t birdCycleTime = 0;
-
-    // Add all values from flapBreakPattern array
-    for (int i = 0; i < soundParams.flapBreakPatternSize; ++i) {
-        birdCycleTime += soundParams.flapBreakPattern[i];
-    }
-
-    // Add all values from flapPattern array
-    for (int i = 0; i < soundParams.flapPatternSize; ++i) {
-        birdCycleTime += soundParams.flapPattern[i];
-    }
-
-    birdCycleTime = birdCycleTime + birdOut.getJobDuration() + birdIn.getJobDuration();
-
-    birdCycleTime = birdCycleTime + 50; //a bit more
-
-    Serial.print(birdCycleTime);
-    Serial.println(" is the birdCycleTime");
-
-    sound.setNewDurationTime(birdCycleTime);
+    // 15 Seconds max sound lengh for safety
+    // some other routine should test if mp3 is still playing and  stop sound job (and therefore pull in bird)
+    sound.setNewDurationTime(15000);
     sound.restartJobTimer();
 
-    flapPattern_index = 0;
-    flapBreakPattern_index = 0;
+    flapPattern_currentIndex = 0;
+    flapBreakPattern_currentIndex = 0;
 
     //execute the bird chain
     birdOut.startJob();
@@ -206,13 +199,13 @@ void soundOff() {
 }
 
 void birdOutStart() {
-  Serial.println("Bird out start");
+  Serial.println(F("Bird out start"));
   digitalWrite(BIRD_MOTOR1_GND_PIN, HIGH);
   digitalWrite(BIRD_MOTOR1_VCC_PIN, LOW);
 }
 
 void birdOutEnd() {
-  Serial.println("Bird out end");
+  Serial.println(F("Bird out end"));
   digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
   digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
   
@@ -226,14 +219,14 @@ void birdOutEnd() {
 }
 
 void birdInStart() {
-  Serial.println("Bird in start");
+  Serial.println(F("Bird in start"));
   digitalWrite(BIRD_MOTOR2_GND_PIN, HIGH);
   digitalWrite(BIRD_MOTOR2_VCC_PIN, LOW);
 
 }
 
 void birdInEnd() {
-  Serial.println("Bird in end");
+  Serial.println(F("Bird in end"));
   digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
   digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
 }
@@ -242,51 +235,123 @@ void birdInEnd() {
 // ========================================================================================================================
 
 void flapStart() {
-  Serial.println("flap Start");
+  Serial.println(F("flap Start"));
   digitalWrite(BIRD_FLAP_PIN, LOW);
 
-  flap.setNewDurationTime(soundParams.flapPattern[flapPattern_index]);
+  flap.setNewDurationTime(soundParams.flapPattern[flapPattern_currentIndex]);
   flap.restartJobTimer();
 }
 
 void flapEnd() {
-  Serial.println("flap End");
+  Serial.println(F("flap End"));
   digitalWrite(BIRD_FLAP_PIN, HIGH);
 
-  flapPattern_index = flapPattern_index + 1;
+  flapPattern_currentIndex = flapPattern_currentIndex + 1;
 
   //check flap break possible
-  if(flapBreakPattern_index < soundParams.flapBreakPatternSize) {
+  if(flapBreakPattern_currentIndex < soundParams.flapBreakPatternSize && !sound.isBackoffActive()) {
     flapBreak.startJob();
   } else {
-    //no flap break anymore. Do now bird in
+    //no flap break anymore (or sound got ended). Do now bird in
     birdIn.startJob();
   }
 
 }
 
 void flapBreakStart(){
-  Serial.println("flapBreakStart");
+  Serial.print(F("flapBreakStart "));
 
-  flapBreak.setNewDurationTime(soundParams.flapBreakPattern[flapBreakPattern_index]);
+  Serial.print(F("setting timer of flap break to "));
+  Serial.println(soundParams.flapBreakPattern[flapBreakPattern_currentIndex]);
+
+  Serial.print(F("current flapBreakPattern_currentIndex "));
+  Serial.println(flapBreakPattern_currentIndex);
+
+  
+  Serial.print(F("current flapBreakPattern_single[0] "));
+  Serial.println(flapBreakPattern_single[0]);
+
+  flapBreak.setNewDurationTime(soundParams.flapBreakPattern[flapBreakPattern_currentIndex]);
   flapBreak.restartJobTimer();
 
 }
 
 void flapBreakEnd() {
-  Serial.println("flapBreakEnd");
+  Serial.println(F("flapBreakEnd"));
 
-  flapBreakPattern_index = flapBreakPattern_index + 1;
+  flapBreakPattern_currentIndex = flapBreakPattern_currentIndex + 1;
 
 
   //check flap possible
-  if(flapPattern_index < soundParams.flapPatternSize) {
+  if(flapPattern_currentIndex < soundParams.flapPatternSize && !sound.isBackoffActive()) {
     flap.startJob();
   } else {
-    //no flap anymore. Do now bird in
+    //no flap anymore (or sound got ended). Do now bird in
     birdIn.startJob();
   }
 
+}
+
+
+void printDetail(uint8_t type, int value){
+  switch (type) {
+    case TimeOut:
+      Serial.println(F("MP3 MSG: Time Out!"));
+      break;
+    case WrongStack:
+      Serial.println(F("MP3 MSG: Stack Wrong!"));
+      break;
+    case DFPlayerCardInserted:
+      Serial.println(F("MP3 MSG: Card Inserted!"));
+      break;
+    case DFPlayerCardRemoved:
+      Serial.println(F("MP3 MSG: Card Removed!"));
+      break;
+    case DFPlayerCardOnline:
+      Serial.println(F("MP3 MSG: Card Online!"));
+      break;
+    case DFPlayerUSBInserted:
+      Serial.println(F("MP3 MSG: Inserted!"));
+      break;
+    case DFPlayerUSBRemoved:
+      Serial.println(F("MP3 MSG: Removed!"));
+      break;
+    case DFPlayerPlayFinished:
+      Serial.print(F("MP3 MSG: Number:"));
+      Serial.print(value);
+      Serial.println(F("MP3 MSG:  Play Finished!"));
+      break;
+    case DFPlayerError:
+      Serial.print(F("MP3 MSG: DFPlayerError:"));
+      switch (value) {
+        case Busy:
+          Serial.println(F("MP3 MSG: Card not found"));
+          break;
+        case Sleeping:
+          Serial.println(F("MP3 MSG: Sleeping"));
+          break;
+        case SerialWrongStack:
+          Serial.println(F("MP3 MSG: Get Wrong Stack"));
+          break;
+        case CheckSumNotMatch:
+          Serial.println(F("MP3 MSG: Check Sum Not Match"));
+          break;
+        case FileIndexOut:
+          Serial.println(F("MP3 MSG: File Index Out of Bound"));
+          break;
+        case FileMismatch:
+          Serial.println(F("MP3 MSG: Cannot Find File"));
+          break;
+        case Advertise:
+          Serial.println(F("MP3 MSG: In Advertise"));
+          break;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  }
 }
 // ========================================================================================================================
 
@@ -314,16 +379,49 @@ void setup() {
   pinMode(BIRD_MOTOR2_GND_PIN, OUTPUT);
   digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
   pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
-  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
- 
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH); 
   
   DFPlayerSoftwareSerial.begin(9600);
   Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
-  mp3Player.begin(DFPlayerSoftwareSerial, false, true);
+  mp3Player.begin(DFPlayerSoftwareSerial, true, true);
+
+  //while(!mp3Player.available()) {
+  //  delay(50);
+ // }
+
+  uint8_t type = mp3Player.readType();
+  int value = mp3Player.read();
+  printDetail(type,value);
+
   mp3Player.volume(VOLUME);
+
+  mp3Player.setTimeOut(2000);
+
+  //initialize randomness so it is not every time the same
+  randomSeed(analogRead(RNG_SEED_PIN));
+
+  delay(2000);
+
+  for (int i = 0; i <= 20; i++) {
+    Serial.print(F("Folder "));
+    Serial.print(i);
+    Serial.print(F(" has "));
+    Serial.print(mp3Player.readFileCountsInFolder(i));
+    Serial.println(F(" files in it."));
+  }
+
+  Serial.print(F("Folder counts "));
+  Serial.println(mp3Player.readFolderCounts());
+
+
+  // Read file counts in folders
+  for (int i = 1; i <= maxFolders; i++) {
+    folderFileCounts[i] = mp3Player.readFileCountsInFolder(i);
+  }
 
   ledOn.startJob();
 }
+
 
 void loop() {
   while(!mainLoopTimer.hasTimedOut());
@@ -334,7 +432,7 @@ void loop() {
   // Sensor-Zustand überprüfen
   bool handSensor_isOn = !digitalRead(HAND_PIN);
   bool roomSensor_isOn = digitalRead(ROOM_PIN);
-  int shakeSensor_value = analogRead(SHAKE_PIN);
+  uint16_t shakeSensor_value = analogRead(SHAKE_PIN);
 
   //display sensor1 state with buldin led
   digitalWrite(LED_BUILTIN, handSensor_isOn);
@@ -349,6 +447,30 @@ void loop() {
   flapBreak.handleJob();
   ledOn.handleJob();
   ledOff.handleJob();
+
+
+  //--------------------------------------
+  // sound observation loop
+
+  if(mp3Player.available()) {
+    uint8_t type = mp3Player.readType();
+    int value = mp3Player.read();
+    printDetail(type,value);
+  }
+
+  if(sound.isJobActive() && mp3Player.available() ) {
+
+    uint8_t type = mp3Player.readType();
+    int value = mp3Player.read();
+
+
+    if (type == DFPlayerPlayFinished) {
+    //sound is done playing. Terminate Bird.
+      Serial.print(F("Finished playing file "));
+      Serial.println(value);
+      sound.endJob(); //terminates bird
+    }
+  }
 
 
   //--------------------------------------
@@ -377,19 +499,19 @@ void loop() {
 
     bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
 
-    // Serial.println("================");
+    // Serial.println(F("================"));
     // Serial.print(wereThereMultipleShakeIncidents);
-    // Serial.println(" = wereThereMultipleShakeIncidents");
+    // Serial.println(F(" = wereThereMultipleShakeIncidents"));
     // Serial.print(timeBasedCounter.getLatestTime());
-    // Serial.println(" = latest time");
+    // Serial.println(F(" = latest time"));
     // Serial.print(currentTime);
-    // Serial.println(" = current time");
+    // Serial.println(F(" = current time"));
 
     // Serial.print("shake detected: shake value ");
     // Serial.println(shakeSensor_value);
     // Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
-    // Serial.println(" is the current shakes detected");
-    // Serial.println("================");
+    // Serial.println(F(" is the current shakes detected"));
+    // Serial.println(F("================"));
 
 
     if(wereThereMultipleShakeIncidents) {
@@ -400,14 +522,14 @@ void loop() {
 }
 
 void ledOnStart() {
-  Serial.println("LED on");
+  Serial.println(F("LED on"));
   analogWrite(LED1_PIN, LED_BRIGHTNESS);
 }
 void ledOnEnd() {
   ledOff.startJob();
 }
 void ledOffStart() {
-  Serial.println("LED off");
+  Serial.println(F("LED off"));
   digitalWrite(LED1_PIN, LOW);
 }
 void ledOffEnd() {
