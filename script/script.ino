@@ -292,67 +292,6 @@ void flapBreakEnd() {
 
 }
 
-
-void printDetail(uint8_t type, int value){
-  switch (type) {
-    case TimeOut:
-      Serial.println(F("MP3 MSG: Time Out!"));
-      break;
-    case WrongStack:
-      Serial.println(F("MP3 MSG: Stack Wrong!"));
-      break;
-    case DFPlayerCardInserted:
-      Serial.println(F("MP3 MSG: Card Inserted!"));
-      break;
-    case DFPlayerCardRemoved:
-      Serial.println(F("MP3 MSG: Card Removed!"));
-      break;
-    case DFPlayerCardOnline:
-      Serial.println(F("MP3 MSG: Card Online!"));
-      break;
-    case DFPlayerUSBInserted:
-      Serial.println(F("MP3 MSG: Inserted!"));
-      break;
-    case DFPlayerUSBRemoved:
-      Serial.println(F("MP3 MSG: Removed!"));
-      break;
-    case DFPlayerPlayFinished:
-      Serial.print(F("MP3 MSG: Number:"));
-      Serial.print(value);
-      Serial.println(F("MP3 MSG:  Play Finished!"));
-      break;
-    case DFPlayerError:
-      Serial.print(F("MP3 MSG: DFPlayerError:"));
-      switch (value) {
-        case Busy:
-          Serial.println(F("MP3 MSG: Card not found"));
-          break;
-        case Sleeping:
-          Serial.println(F("MP3 MSG: Sleeping"));
-          break;
-        case SerialWrongStack:
-          Serial.println(F("MP3 MSG: Get Wrong Stack"));
-          break;
-        case CheckSumNotMatch:
-          Serial.println(F("MP3 MSG: Check Sum Not Match"));
-          break;
-        case FileIndexOut:
-          Serial.println(F("MP3 MSG: File Index Out of Bound"));
-          break;
-        case FileMismatch:
-          Serial.println(F("MP3 MSG: Cannot Find File"));
-          break;
-        case Advertise:
-          Serial.println(F("MP3 MSG: In Advertise"));
-          break;
-        default:
-          break;
-      }
-      break;
-    default:
-      break;
-  }
-}
 // ========================================================================================================================
 
 void setup() {
@@ -380,44 +319,82 @@ void setup() {
   digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
   pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
   digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH); 
-  
-  DFPlayerSoftwareSerial.begin(9600);
-  Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
-  mp3Player.begin(DFPlayerSoftwareSerial, true, true);
 
-  //while(!mp3Player.available()) {
-  //  delay(50);
- // }
-
-  uint8_t type = mp3Player.readType();
-  int value = mp3Player.read();
-  printDetail(type,value);
-
-  mp3Player.volume(VOLUME);
-
-  mp3Player.setTimeOut(2000);
 
   //initialize randomness so it is not every time the same
   randomSeed(analogRead(RNG_SEED_PIN));
 
-  delay(2000);
+  //mp3 player stuff
+  DFPlayerSoftwareSerial.begin(9600);
+  Serial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
+  mp3Player.begin(DFPlayerSoftwareSerial, true, false);
+  mp3Player.setTimeOut(2000);
 
-  for (int i = 0; i <= 20; i++) {
-    Serial.print(F("Folder "));
+
+  mp3Player.volume(0);
+  delay(50);
+
+  int consecutiveSame = 0;
+  int lastValue = INT16_MAX;
+  int currentRead;
+
+  while(consecutiveSame < 3) {
+    Serial.print(F("consecutiveSame: "));
+    Serial.println(consecutiveSame);
+    currentRead = mp3Player.readFolderCounts();
+    Serial.print(F("currentRead: "));
+    Serial.println(currentRead);
+    if(lastValue == currentRead){
+      consecutiveSame += 1;
+    } else {
+      consecutiveSame = 0;
+      lastValue = currentRead;
+    }
+  }
+
+  int maxDetectedFolders = lastValue;
+  Serial.print(F("maxDetectedFolders "));
+  Serial.println(maxDetectedFolders);
+
+  if(maxDetectedFolders > maxFolders) {
+    maxDetectedFolders = maxFolders;
+  }
+
+  for (int i = 1; i <= maxDetectedFolders ; i++) {
+
+    mp3Player.playFolder(i, 1);
+    delay(100);
+
+    lastValue = INT16_MAX;
+    consecutiveSame = 0;
+    while(consecutiveSame < 3) {
+      Serial.print(F("consecutiveSame: "));
+      Serial.println(consecutiveSame);
+      currentRead = mp3Player.readFileCountsInFolder(0);
+      delay(20);
+      Serial.print(F("currentRead: "));
+      Serial.println(currentRead);
+      if(lastValue == currentRead){
+        consecutiveSame += 1;
+      } else {
+        consecutiveSame = 0;
+        lastValue = currentRead;
+      }
+    }
+
+    folderFileCounts[i] = lastValue;
+
+    Serial.print(F("folderFileCounts[i] i: "));
     Serial.print(i);
-    Serial.print(F(" has "));
-    Serial.print(mp3Player.readFileCountsInFolder(i));
-    Serial.println(F(" files in it."));
+    Serial.print(F(" folderFileCounts: "));
+    Serial.println(lastValue);
   }
 
-  Serial.print(F("Folder counts "));
-  Serial.println(mp3Player.readFolderCounts());
 
+  mp3Player.stop();
+  delay(500);
 
-  // Read file counts in folders
-  for (int i = 1; i <= maxFolders; i++) {
-    folderFileCounts[i] = mp3Player.readFileCountsInFolder(i);
-  }
+  mp3Player.volume(VOLUME);
 
   ledOn.startJob();
 }
@@ -451,12 +428,6 @@ void loop() {
 
   //--------------------------------------
   // sound observation loop
-
-  if(mp3Player.available()) {
-    uint8_t type = mp3Player.readType();
-    int value = mp3Player.read();
-    printDetail(type,value);
-  }
 
   if(sound.isJobActive() && mp3Player.available() ) {
 
