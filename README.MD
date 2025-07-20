@@ -10,7 +10,7 @@ the schematics or board layout.
 Follow the instructions in the script.ino. When compiling, choose the old bootloader
 for the arduino nano:
 
-![bootloader.png](resources/images/old bootloader.png)
+![bootloader.png](resources/images/oldBootloader.png)
 
 ## How to use the SD card
 
