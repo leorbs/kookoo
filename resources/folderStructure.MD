@@ -15,7 +15,7 @@ One known working solution is the following:
 - Export Range: current section
 - Export!
 
-![img.png](img.png)
+![audacityExport.png](images/audacityExport.png)
 
 
 ## Folder Structure

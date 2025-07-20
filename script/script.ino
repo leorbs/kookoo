@@ -6,9 +6,17 @@
 #include "BirdFlapGenerator.h"
 #include "Bounce2.h"
 
+//----------------------------------------
+//Install the following libraries from your arduino library manager
+//https://github.com/thomasfredericks/Bounce2
+//https://github.com/end2endzone/SoftTimers
+
+// use the old bootloader for arduino nano when compiling
+
+
 // comment out this line, if you want to show logs on serial:
 // #define DEBUG
-
+//----------------------------------------
 
 
 #ifdef DEBUG
@@ -41,7 +49,10 @@
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
 #define VOLUME 23              // sound volume 0-30
-#define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_SENSITIVITY 25   // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_PICKUP_SPEED 666 // minimum time in ms between shake incidents to get registered
+#define SHAKE_OBSERVATION_WINDOW 5000 // Window to observe 3 shakes
+
 
 #define LED_BRIGHTNESS 255      // 0-255
 
@@ -64,7 +75,7 @@ uint8_t currentRoomFolder_beepCyclePosition = 0;
 Bounce2::Button button1 = Bounce2::Button();
 
 
-TimeBasedCounter timeBasedCounter;
+TimeBasedCounter timeBasedCounter(SHAKE_OBSERVATION_WINDOW);
 unsigned long currentTime = 0;
 
 void soundOn();
@@ -582,12 +593,15 @@ void loop() {
   // add the analog signal to a counter
   // decrease counter in each loop
   // if counter too high, then tilt
+
+  
   
 
-  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 750 && !shake.isBackoffActive()) {
+  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime - timeBasedCounter.getLatestTime() > SHAKE_PICKUP_SPEED && !shake.isBackoffActive()) {
 
     bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
 
+#ifdef DEBUG
     Serial.println(F("================"));
     Serial.print(wereThereMultipleShakeIncidents);
     Serial.println(F(" = wereThereMultipleShakeIncidents"));
@@ -601,7 +615,7 @@ void loop() {
     Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
     Serial.println(F(" is the current shakes detected"));
     Serial.println(F("================"));
-
+#endif
 
     if(wereThereMultipleShakeIncidents) {
       shake.startJob();
