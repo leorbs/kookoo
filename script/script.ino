@@ -4,9 +4,17 @@
 #include "JobManager.cpp"
 #include "TimeBasedCounter.cpp"
 #include "BirdFlapGenerator.h"
+#include "Bounce2.h"
 
 // comment out this line, if you want to show logs on serial:
-// #define NDEBUG
+// #define DEBUG
+
+
+
+#ifdef DEBUG
+  #warning "Serial debugging is enable. This will slow down program flow"
+#endif
+
 
 
 #define MAIN_LOOP_TIME_BASE_MS	5
@@ -15,6 +23,8 @@
 #define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
 #define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
 #define RNG_SEED_PIN A3        // Used to initialize the randomnes A3
+
+#define BUTTON_1 12            // Button for setting the folder
 
 #define LED1_PIN 9             // D9 LED
 #define PUMP_PIN 7             // D7 soap pump
@@ -33,7 +43,7 @@
 #define VOLUME 23              // sound volume 0-30
 #define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
 
-#define LED_BRIGHTNESS 150      // 0-255
+#define LED_BRIGHTNESS 255      // 0-255
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
@@ -42,12 +52,17 @@ SoftTimer mainLoopTimer;
 
 #define FOLDER_STANDARD_BIRD_SOUND 1
 #define FOLDER_SHAKE_SENSOR_ACTIVATED 2
-#define FOLDER_ROOM_START 3
+#define FOLDER_BEEP 3
+#define FOLDER_ROOM_START 4
 #define FOLDER_ROOM_END 13
 
-const uint8_t maxFolders = FOLDER_ROOM_END;
-uint8_t folderFileCounts[maxFolders + 1]; // Index 1-13 used
+uint8_t maxDetectedFolders = FOLDER_ROOM_END;
+uint8_t folderFileCounts[FOLDER_ROOM_END + 1]; // Index 1-13 used
 uint8_t currentRoomFolder = FOLDER_ROOM_START;
+uint8_t currentRoomFolder_beepCyclePosition = 0;
+
+Bounce2::Button button1 = Bounce2::Button();
+
 
 TimeBasedCounter timeBasedCounter;
 unsigned long currentTime = 0;
@@ -82,7 +97,7 @@ SoundParams soundParams;
 int flapPattern_currentIndex = 0;
 int flapBreakPattern_currentIndex = 0;
 
-JobManager sound(15000, 400, soundOn, soundOff, false, false); //backoff is the safety time for bird termination
+JobManager sound(15000, 800, soundOn, soundOff, false, false); //backoff is the safety time for bird termination
 
 JobManager flap(500, flapStart, flapEnd);
 JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
@@ -90,7 +105,12 @@ JobManager birdOut(240, birdOutStart, birdOutEnd);
 JobManager birdIn(260, birdInStart, birdInEnd);
 
 JobManager soap(400, 2000, soapOn, soapOff, true);
-JobManager room(500, 60000, roomOn, roomOff, true, true);
+#ifdef DEBUG
+  JobManager room(500, 20000, roomOn, roomOff, true, true);
+#else
+  JobManager room(500, 60000, roomOn, roomOff, true, true);
+#endif
+
 JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
 // only sound will control bird
@@ -256,7 +276,7 @@ void flapEnd() {
   flapPattern_currentIndex = flapPattern_currentIndex + 1;
 
   //check flap break possible
-  if(flapBreakPattern_currentIndex < soundParams.flapBreakPatternSize && !sound.isBackoffActive()) {
+  if(flapBreakPattern_currentIndex < soundParams.flapBreakPatternSize && sound.isJobActive()) {
     flapBreak.startJob();
   } else {
     //no flap break anymore (or sound got ended). Do now bird in
@@ -281,7 +301,7 @@ void flapBreakEnd() {
 
 
   //check flap possible
-  if(flapPattern_currentIndex < soundParams.flapPatternSize && !sound.isBackoffActive()) {
+  if(flapPattern_currentIndex < soundParams.flapPatternSize && sound.isJobActive()) {
     flap.startJob();
   } else {
     //no flap anymore (or sound got ended). Do now bird in
@@ -291,6 +311,66 @@ void flapBreakEnd() {
 }
 
 // ========================================================================================================================
+void printDetail(uint8_t type, int value){
+  switch (type) {
+    case TimeOut:
+      Serial.println(F("DFPLAYER: Time Out!"));
+      break;
+    case WrongStack:
+      Serial.println(F("DFPLAYER: Stack Wrong!"));
+      break;
+    case DFPlayerCardInserted:
+      Serial.println(F("DFPLAYER: Card Inserted!"));
+      break;
+    case DFPlayerCardRemoved:
+      Serial.println(F("DFPLAYER: Card Removed!"));
+      break;
+    case DFPlayerCardOnline:
+      Serial.println(F("DFPLAYER: Card Online!"));
+      break;
+    case DFPlayerUSBInserted:
+      Serial.println(F("DFPLAYER: USB Inserted!"));
+      break;
+    case DFPlayerUSBRemoved:
+      Serial.println(F("DFPLAYER: USB Removed!"));
+      break;
+    case DFPlayerPlayFinished:
+      Serial.print(F("DFPLAYER: Number: "));
+      Serial.print(value);
+      Serial.println(F(" Play Finished!"));
+      break;
+    case DFPlayerError:
+      Serial.print(F("DFPLAYER: DFPlayerError:"));
+      switch (value) {
+        case Busy:
+          Serial.println(F("DFPLAYER: Card not found"));
+          break;
+        case Sleeping:
+          Serial.println(F("DFPLAYER: Sleeping"));
+          break;
+        case SerialWrongStack:
+          Serial.println(F("DFPLAYER: Get Wrong Stack"));
+          break;
+        case CheckSumNotMatch:
+          Serial.println(F("DFPLAYER: Check Sum Not Match"));
+          break;
+        case FileIndexOut:
+          Serial.println(F("DFPLAYER: File Index Out of Bound"));
+          break;
+        case FileMismatch:
+          Serial.println(F("DFPLAYER: Cannot Find File"));
+          break;
+        case Advertise:
+          Serial.println(F("DFPLAYER: In Advertise"));
+          break;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+}
 
 void setup() {
   mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
@@ -318,13 +398,23 @@ void setup() {
   pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
   digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH); 
 
+  button1.attach ( BUTTON_1 , INPUT_PULLUP );
+  button1.interval( 10 );
+  button1.setPressedState( LOW ); 
 
-  //initialize randomness so it is not every time the same
-  randomSeed(analogRead(RNG_SEED_PIN));
-
-  #ifdef NDEBUG
+  #ifdef DEBUG
     Serial.begin(9600);
   #endif
+
+  int seed = analogRead(RNG_SEED_PIN);
+
+  Serial.print(F("seed is: "));
+  Serial.println(seed);
+
+  //initialize randomness so it is not every time the same
+  randomSeed(seed);
+
+
 
   //mp3 player stuff
   DFPlayerSoftwareSerial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
@@ -343,6 +433,12 @@ void setup() {
     Serial.print(F("consecutiveSame: "));
     Serial.println(consecutiveSame);
     currentRead = mp3Player.readFolderCounts();
+
+    if(mp3Player.available() ) {
+        uint8_t type = mp3Player.readType();
+        int value = mp3Player.read();
+        printDetail(type, value);
+    }
     Serial.print(F("currentRead: "));
     Serial.println(currentRead);
     if(lastValue == currentRead){
@@ -353,12 +449,12 @@ void setup() {
     }
   }
 
-  int maxDetectedFolders = lastValue;
+  maxDetectedFolders = lastValue;
   Serial.print(F("maxDetectedFolders "));
   Serial.println(maxDetectedFolders);
 
-  if(maxDetectedFolders > maxFolders) {
-    maxDetectedFolders = maxFolders;
+  if(maxDetectedFolders > FOLDER_ROOM_END) {
+    maxDetectedFolders = FOLDER_ROOM_END;
   }
 
   for (int i = 1; i <= maxDetectedFolders ; i++) {
@@ -368,11 +464,18 @@ void setup() {
 
     lastValue = INT16_MAX;
     consecutiveSame = 0;
-    while(consecutiveSame < 3) {
+    while(consecutiveSame < 5) {
       Serial.print(F("consecutiveSame: "));
       Serial.println(consecutiveSame);
-      currentRead = mp3Player.readFileCountsInFolder(0);
-      delay(20);
+      currentRead = mp3Player.readFileCountsInFolder(i);
+      
+      if(mp3Player.available() ) {
+        uint8_t type = mp3Player.readType();
+        int value = mp3Player.read();
+        printDetail(type, value);
+      }
+
+      delay(50);
       Serial.print(F("currentRead: "));
       Serial.println(currentRead);
       if(lastValue == currentRead){
@@ -382,6 +485,12 @@ void setup() {
         lastValue = currentRead;
       }
     }
+
+    // mp3Player.playFolder(i, lastValue);
+    // delay(100);
+    // currentRead = mp3Player.readFileCountsInFolder(i);
+    // Serial.print(F("lastValue currentRead: "));
+    // Serial.println(currentRead);
 
     folderFileCounts[i] = lastValue;
 
@@ -401,6 +510,8 @@ void setup() {
 }
 
 
+
+
 void loop() {
   while(!mainLoopTimer.hasTimedOut());
   mainLoopTimer.reset();
@@ -415,6 +526,8 @@ void loop() {
   //display sensor1 state with buldin led
   digitalWrite(LED_BUILTIN, handSensor_isOn);
 
+  button1.update();
+  
   soap.handleJob();
   room.handleJob();
   shake.handleJob();
@@ -430,17 +543,20 @@ void loop() {
   //--------------------------------------
   // sound observation loop
 
-  if(sound.isJobActive() && mp3Player.available() ) {
+  if(mp3Player.available() ) {
 
     uint8_t type = mp3Player.readType();
     int value = mp3Player.read();
 
 
-    if (type == DFPlayerPlayFinished) {
+    if (sound.isJobActive() && type == DFPlayerPlayFinished) {
     //sound is done playing. Terminate Bird.
-      Serial.print(F("Finished playing file "));
+      Serial.print(F("DFPLAYER: Finished playing filenumber "));
       Serial.println(value);
+      mp3Player.stop();
       sound.endJob(); //terminates bird
+    } else {
+      printDetail(type, value); //Print the detail message from DFPlayer to handle different errors and states.
     }
   }
 
@@ -461,29 +577,30 @@ void loop() {
     room.resetJob();
   }
 
+  // ======================================
   // new idea:
   // add the analog signal to a counter
   // decrease counter in each loop
   // if counter too high, then tilt
   
 
-  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 1000 && !shake.isBackoffActive()) {
+  if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime > timeBasedCounter.getLatestTime() + 750 && !shake.isBackoffActive()) {
 
     bool wereThereMultipleShakeIncidents = timeBasedCounter.addTimeAndCheck(currentTime);
 
-    // Serial.println(F("================"));
-    // Serial.print(wereThereMultipleShakeIncidents);
-    // Serial.println(F(" = wereThereMultipleShakeIncidents"));
-    // Serial.print(timeBasedCounter.getLatestTime());
-    // Serial.println(F(" = latest time"));
-    // Serial.print(currentTime);
-    // Serial.println(F(" = current time"));
+    Serial.println(F("================"));
+    Serial.print(wereThereMultipleShakeIncidents);
+    Serial.println(F(" = wereThereMultipleShakeIncidents"));
+    Serial.print(timeBasedCounter.getLatestTime());
+    Serial.println(F(" = latest time"));
+    Serial.print(currentTime);
+    Serial.println(F(" = current time"));
 
-    // Serial.print("shake detected: shake value ");
-    // Serial.println(shakeSensor_value);
-    // Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
-    // Serial.println(F(" is the current shakes detected"));
-    // Serial.println(F("================"));
+    Serial.print(F("shake detected: shake value "));
+    Serial.println(shakeSensor_value);
+    Serial.print(timeBasedCounter.getCurrentShakeCounter(currentTime));
+    Serial.println(F(" is the current shakes detected"));
+    Serial.println(F("================"));
 
 
     if(wereThereMultipleShakeIncidents) {
@@ -491,7 +608,38 @@ void loop() {
     }
   }
 
+
+  // ======================================
+  // WARNING, THIS BLOCKS THE LOOP FLOW
+  if ( button1.pressed() ) {
+    
+    Serial.println(F("button1 pressed"));
+    currentRoomFolder = currentRoomFolder + 1;
+
+    Serial.print(F("currentRoomFolder"));
+    Serial.println(currentRoomFolder);
+
+    
+    Serial.print(F("maxDetectedFolders"));
+    Serial.println(maxDetectedFolders);
+
+    if(currentRoomFolder > maxDetectedFolders) {
+      currentRoomFolder = (uint8_t) FOLDER_ROOM_START;
+    }
+
+    Serial.print(F("sounds will be played from room "));
+    Serial.println(currentRoomFolder);
+
+    for(uint8_t i = FOLDER_ROOM_START; i <= currentRoomFolder; i++) {
+      mp3Player.playFolder(FOLDER_BEEP, 1);
+      delay(600);
+    }
+    mp3Player.stop();
+
+  }
+
 }
+
 
 void ledOnStart() {
   // Serial.println(F("LED on"));

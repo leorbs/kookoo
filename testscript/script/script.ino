@@ -1,44 +1,34 @@
-#include <DFPlayerMini_Fast.h>
+#include "Arduino.h"
+#include <Bounce2.h> 
 
 
-#include <SoftwareSerial.h>
-SoftwareSerial mySerial(10, 11); // RX, TX
+#define BUTTON_1 12
 
 
-DFPlayerMini_Fast myMP3;
 
-void setup()
-{
+
+Bounce2::Button button = Bounce2::Button(); // INSTANTIATE A Bounce2::Button OBJECT
+
+
+void setup() {
+
+  button.attach ( BUTTON_1 , INPUT_PULLUP );
+  button.interval( 10 );
+  button.setPressedState( LOW ); 
+
   Serial.begin(9600);
 
+}
 
-  mySerial.begin(9600);
-  myMP3.begin(mySerial, true, 5000);
+void loop() {
 
-  mySerial.listen();
-  myMP3.setTimeout(5000);
+  // UPDATE THE BUTTON BY CALLING .update() AT THE BEGINNING OF THE LOOP:
+  button.update();
 
-  
-  delay(1000);
-  
-  Serial.println("Setting volume to max");
-  myMP3.volume(20);
-
-  for (int i = 0; i <= 5; i++) {
-    Serial.print(F("Folder "));
-    Serial.print(i);
-    Serial.print(F(" has "));
-    Serial.print(myMP3.numTracksInFolder(i));
-    Serial.println(F(" files in it."));
+  // IF THE BUTTON WAS PRESSED THIS LOOP:
+  if ( button.pressed() ) {
+    Serial.println("button pressed");
   }
-  
-  Serial.println("Looping track 1");
-  myMP3.loop(1);
-
 
 }
 
-void loop()
-{
-  //do nothing
-}
