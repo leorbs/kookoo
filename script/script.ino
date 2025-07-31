@@ -14,7 +14,7 @@
 // use the old bootloader for arduino nano when compiling
 
 
-// comment out this line, if you want to show logs on serial:
+// uncomment this line, if you want to show logs on serial:
 // #define DEBUG
 //----------------------------------------
 
@@ -30,11 +30,14 @@
 #define HAND_PIN A0            // connect IR hand sensor module to Arduino pin A0
 #define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
 #define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
-#define RNG_SEED_PIN A3        // Used to initialize the randomnes A3
+
+#define RNG_SEED_PIN A5        // Used to initialize the randomnes A3
 
 #define BUTTON_1 12            // Button for setting the folder
+#define BUTTON_2 A3            // Button for setting the folder
 
 #define LED1_PIN 9             // D9 LED
+#define LED2_PIN A4            // LED2
 #define PUMP_PIN 7             // D7 soap pump
 
 #define BIRD_FLAP_PIN 6        // D6 bird flap
@@ -54,7 +57,8 @@
 #define SHAKE_OBSERVATION_WINDOW 5000 // Window to observe 3 shakes
 
 
-#define LED_BRIGHTNESS 255      // 0-255
+#define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
+#define LED2_BRIGHTNESS 255      // 0-255  
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
@@ -73,6 +77,7 @@ uint8_t currentRoomFolder = FOLDER_ROOM_START;
 uint8_t currentRoomFolder_beepCyclePosition = 0;
 
 Bounce2::Button button1 = Bounce2::Button();
+Bounce2::Button button2 = Bounce2::Button();
 
 
 TimeBasedCounter timeBasedCounter(SHAKE_OBSERVATION_WINDOW);
@@ -411,7 +416,12 @@ void setup() {
 
   button1.attach ( BUTTON_1 , INPUT_PULLUP );
   button1.interval( 10 );
-  button1.setPressedState( LOW ); 
+  button1.setPressedState( LOW );
+
+  button2.attach ( BUTTON_2 , INPUT_PULLUP );
+  button2.interval( 10 );
+  button2.setPressedState( LOW );
+
 
   #ifdef DEBUG
     Serial.begin(9600);
@@ -538,7 +548,8 @@ void loop() {
   digitalWrite(LED_BUILTIN, handSensor_isOn);
 
   button1.update();
-  
+  button2.update();
+
   soap.handleJob();
   room.handleJob();
   shake.handleJob();
@@ -625,7 +636,7 @@ void loop() {
 
   // ======================================
   // WARNING, THIS BLOCKS THE LOOP FLOW
-  if ( button1.pressed() ) {
+  if ( button1.pressed() || button2.pressed() ) {
     
     Serial.println(F("button1 pressed"));
     currentRoomFolder = currentRoomFolder + 1;
@@ -657,7 +668,8 @@ void loop() {
 
 void ledOnStart() {
   // Serial.println(F("LED on"));
-  analogWrite(LED1_PIN, LED_BRIGHTNESS);
+  analogWrite(LED1_PIN, LED1_BRIGHTNESS);
+  analogWrite(LED2_PIN, LED2_BRIGHTNESS);
 }
 void ledOnEnd() {
   ledOff.startJob();
@@ -665,6 +677,7 @@ void ledOnEnd() {
 void ledOffStart() {
   // Serial.println(F("LED off"));
   digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
 }
 void ledOffEnd() {
   ledOn.startJob();
