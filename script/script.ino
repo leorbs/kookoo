@@ -52,9 +52,9 @@
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
 #define VOLUME 23              // sound volume 0-30
-#define SHAKE_SENSITIVITY 25   // up to 1024. The higher the number, the lower the sensitivity
-#define SHAKE_PICKUP_SPEED 666 // minimum time in ms between shake incidents to get registered
-#define SHAKE_OBSERVATION_WINDOW 5000 // Window to observe 3 shakes
+#define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_PICKUP_SPEED 150 // minimum time in ms between shake incidents to get registered
+#define SHAKE_OBSERVATION_WINDOW 4000 // Window to observe shakes
 
 
 #define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
@@ -103,7 +103,7 @@ void ledOnStart();
 void ledOnEnd();
 void ledOffStart();
 void ledOffEnd();
-
+void doMp3PlayerSetupStuff();
 
 const uint16_t flapBreakPattern_single[] = {200, 600};
 const uint16_t flapPattern_single[] =        {500};
@@ -120,13 +120,8 @@ JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
 JobManager birdOut(240, birdOutStart, birdOutEnd);
 JobManager birdIn(260, birdInStart, birdInEnd);
 
-JobManager soap(400, 2000, soapOn, soapOff, true);
-#ifdef DEBUG
-  JobManager room(500, 20000, roomOn, roomOff, true, true);
-#else
-  JobManager room(500, 60000, roomOn, roomOff, true, true);
-#endif
-
+JobManager soap(500, 2000, soapOn, soapOff, true);
+JobManager room(500, 60000, roomOn, roomOff, true, true);
 JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
 // only sound will control bird
@@ -142,7 +137,7 @@ void soapOn() {
   Serial.println(F("switch soap on"));
   digitalWrite(PUMP_PIN, LOW);
 
-  // set new sound params for the sound job TEST
+  // set new sound params for the sound job
   Serial.print(sound.isJobActive());
   Serial.println(F(" is the isJobActive"));
 
@@ -439,35 +434,60 @@ void setup() {
 
   //mp3 player stuff
   DFPlayerSoftwareSerial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
-  mp3Player.begin(DFPlayerSoftwareSerial, true, false);
+  bool mp3PlayerOnline = mp3Player.begin(DFPlayerSoftwareSerial, true, true);
+  
+  if(mp3PlayerOnline) {
+    doMp3PlayerSetupStuff();
+  }
+
+
+  ledOn.startJob();
+}
+
+void doMp3PlayerSetupStuff() {
   mp3Player.setTimeOut(2000);
-
-
   mp3Player.volume(0);
   delay(50);
 
   int consecutiveSame = 0;
   int lastValue = INT16_MAX;
   int currentRead;
+  bool filedetection = false;
 
 
-  // Serial.print(F("maxDetectedFolders "));
-  // Serial.println(maxDetectedFolders);
-  // bool filedetection = false;
+  while(consecutiveSame < 4) {
+    Serial.print(F("consecutiveSame: "));
+    Serial.println(consecutiveSame);
+    currentRead = mp3Player.readFolderCounts();
 
-  // maxDetectedFolders = lastValue;
+    if(mp3Player.available() ) {
+        uint8_t type = mp3Player.readType();
+        int value = mp3Player.read();
+        printDetail(type, value);
+    }
+    Serial.print(F("currentRead: "));
+    Serial.println(currentRead);
+    if(lastValue == currentRead){
+      consecutiveSame += 1;
+    } else {
+      consecutiveSame = 0;
+      lastValue = currentRead;
+    }
+  }
 
+  maxDetectedFolders = lastValue;
+  Serial.print(F("maxDetectedFolders after readFolderCounts "));
+  Serial.println(maxDetectedFolders);
 
-  // if(maxDetectedFolders > FOLDER_ROOM_END) {
+  if(maxDetectedFolders > FOLDER_ROOM_END || maxDetectedFolders < 0) {
 
-  //   Serial.print(F("Getting folder count is not supported or errornous. Falling back to file detection "));
-  //   filedetection = true;
+    Serial.print(F("Getting folder count is not supported or errornous. Falling back to file detection "));
+    filedetection = true;
 
-  //   maxDetectedFolders = FOLDER_ROOM_END;
-  // }
+    maxDetectedFolders = FOLDER_ROOM_END; //setting temporary for iterating over folders (this is not good code, I know, sry)
+  }
 
-  for (int i = 1; i <= FOLDER_ROOM_END; i++) {
-
+  for (int i = 1; i <= maxDetectedFolders; i++) {
     mp3Player.playFolder(i, 1);
     delay(100);
 
@@ -517,32 +537,36 @@ void setup() {
     }
   }
 
-  Serial.println(F("Filedetection "));
-  maxDetectedFolders = 0;
 
-  for(int i = 1; i <= FOLDER_ROOM_END; i++) {
-    if(folderFileCounts[i] > 0 && folderFileCounts[i] < 255) {
-      maxDetectedFolders = maxDetectedFolders + 1;
-    } else {
-      //abort when there is a folder detected with 0 files
-      break;
+  if(filedetection) {
+    Serial.println(F("Filedetection is active."));
+    maxDetectedFolders = 0;
+
+    for(int i = 1; i <= FOLDER_ROOM_END; i++) {
+      if(folderFileCounts[i] > 0 && folderFileCounts[i] < 255) {
+        maxDetectedFolders = maxDetectedFolders + 1;
+      } else {
+        //abort when there is a folder detected with 0 files
+        break;
+      }
+    }
+
+    Serial.print(F("Detected files in the first X folders: "));
+    Serial.println(maxDetectedFolders);
+
+    if(maxDetectedFolders > FOLDER_ROOM_END) {
+      //safety
+      maxDetectedFolders = FOLDER_ROOM_END;
+      Serial.println(F("Safety for filedetection activated"));
     }
   }
 
-  Serial.print(F("Detected files in the first X folders: "));
-  Serial.println(maxDetectedFolders);
-
-  if(maxDetectedFolders > FOLDER_ROOM_END) {
-    //safety
-    maxDetectedFolders = FOLDER_ROOM_END;
-  }
 
   mp3Player.stop();
   delay(500);
 
   mp3Player.volume(VOLUME);
-
-  ledOn.startJob();
+  mp3Player.setTimeOut(500);
 }
 
 
