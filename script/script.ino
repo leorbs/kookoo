@@ -450,42 +450,30 @@ void setup() {
   int lastValue = INT16_MAX;
   int currentRead;
 
-  while(consecutiveSame < 3) {
-    Serial.print(F("consecutiveSame: "));
-    Serial.println(consecutiveSame);
-    currentRead = mp3Player.readFolderCounts();
 
-    if(mp3Player.available() ) {
-        uint8_t type = mp3Player.readType();
-        int value = mp3Player.read();
-        printDetail(type, value);
-    }
-    Serial.print(F("currentRead: "));
-    Serial.println(currentRead);
-    if(lastValue == currentRead){
-      consecutiveSame += 1;
-    } else {
-      consecutiveSame = 0;
-      lastValue = currentRead;
-    }
-  }
+  // Serial.print(F("maxDetectedFolders "));
+  // Serial.println(maxDetectedFolders);
+  // bool filedetection = false;
 
-  maxDetectedFolders = lastValue;
-  Serial.print(F("maxDetectedFolders "));
-  Serial.println(maxDetectedFolders);
+  // maxDetectedFolders = lastValue;
 
-  if(maxDetectedFolders > FOLDER_ROOM_END) {
-    maxDetectedFolders = FOLDER_ROOM_END;
-  }
 
-  for (int i = 1; i <= maxDetectedFolders ; i++) {
+  // if(maxDetectedFolders > FOLDER_ROOM_END) {
+
+  //   Serial.print(F("Getting folder count is not supported or errornous. Falling back to file detection "));
+  //   filedetection = true;
+
+  //   maxDetectedFolders = FOLDER_ROOM_END;
+  // }
+
+  for (int i = 1; i <= FOLDER_ROOM_END; i++) {
 
     mp3Player.playFolder(i, 1);
     delay(100);
 
     lastValue = INT16_MAX;
     consecutiveSame = 0;
-    while(consecutiveSame < 5) {
+    while(consecutiveSame < 6) {
       Serial.print(F("consecutiveSame: "));
       Serial.println(consecutiveSame);
       currentRead = mp3Player.readFileCountsInFolder(i);
@@ -519,8 +507,35 @@ void setup() {
     Serial.print(i);
     Serial.print(F(" folderFileCounts: "));
     Serial.println(lastValue);
+
+    if(lastValue == 0) {
+      Serial.println(F("Found a Folder with 0 files. Aborting... "));
+      break;
+    } else if (lastValue == -1) {
+      Serial.println(F("Found a Folder with -1 files. Aborting... "));
+      break;
+    }
   }
 
+  Serial.println(F("Filedetection "));
+  maxDetectedFolders = 0;
+
+  for(int i = 1; i <= FOLDER_ROOM_END; i++) {
+    if(folderFileCounts[i] > 0 && folderFileCounts[i] < 255) {
+      maxDetectedFolders = maxDetectedFolders + 1;
+    } else {
+      //abort when there is a folder detected with 0 files
+      break;
+    }
+  }
+
+  Serial.print(F("Detected files in the first X folders: "));
+  Serial.println(maxDetectedFolders);
+
+  if(maxDetectedFolders > FOLDER_ROOM_END) {
+    //safety
+    maxDetectedFolders = FOLDER_ROOM_END;
+  }
 
   mp3Player.stop();
   delay(500);
