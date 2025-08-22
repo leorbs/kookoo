@@ -57,8 +57,8 @@ public:
 
   // Get the latest timestamp from the stored values
   unsigned long getLatestTime() const {
-    unsigned long newest = 0;
-    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+    unsigned long newest = times[0];
+    for (uint8_t i = 1; i < COUNTER_SIZE; i++) {
       // For explanation, google
       // "Modular (or Unsigned) Time Comparison"
       // "Half-range unsigned comparison"
