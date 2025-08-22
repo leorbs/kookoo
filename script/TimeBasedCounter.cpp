@@ -8,9 +8,13 @@ private:
   unsigned long withinTime;
 
 public:
-  TimeBasedCounter(unsigned long window = 5000) : times{}, withinTime(window) {}
+  TimeBasedCounter(unsigned long window = 5000) : withinTime(window) {
+    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+      times[i] = 0 - withinTime;  // initialize with offset
+    }
+  }
 
-  // Add current time and check if all three are within the window
+  // Add current time and check if all COUNTER_SIZE are within the window
   bool addTimeAndCheck(unsigned long currentTime) {
     for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
       if ((unsigned long)(currentTime - times[i]) > withinTime) {
@@ -23,10 +27,10 @@ public:
     return true; // All timestamps are within the window
   }
 
-  // Reset all stored timestamps
+  // Reset all stored by shifting them back timestamps
   void reset() {
     for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
-      times[i] = 0;
+      times[i] = times[i] - withinTime;
     }
   }
 
@@ -35,6 +39,16 @@ public:
     uint8_t counter = 0;
     for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
       if ((unsigned long)(currentTime - times[i]) <= withinTime) {
+#ifdef DEBUG
+        Serial.print("Current time ");
+        Serial.print(currentTime);
+        Serial.print(" minus times[i] ");
+        Serial.print(times[i]);
+        Serial.print(" is ");
+        Serial.print(currentTime - times[i]);
+        Serial.print(" and therefore smaller than ");
+        Serial.println(withinTime);
+#endif
         counter++;
       }
     }

@@ -139,7 +139,7 @@ void soapOn() {
 
   // set new sound params for the sound job
   Serial.print(sound.isJobActive());
-  Serial.println(F(" is the isJobActive"));
+  Serial.println(F(" = Sound job currently active"));
 
   if(!sound.isJobActive()) {
 
@@ -566,7 +566,7 @@ void doMp3PlayerSetupStuff() {
   delay(500);
 
   mp3Player.volume(VOLUME);
-  mp3Player.setTimeOut(500);
+  mp3Player.setTimeOut(1000);
 }
 
 
@@ -628,7 +628,7 @@ void loop() {
     timeBasedCounter.reset(); //shake is allowed when there is normal usage
     room.renewBackoff(); // when someone uses the soap, we dont need to execute the room procedure
   } else {
-    soap.resetJob();
+    soap.resetJob(); // this prevents continuous soap, if the handsensor is continuously on
   }
 
   if (roomSensor_isOn) {
