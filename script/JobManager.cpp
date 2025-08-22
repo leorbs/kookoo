@@ -40,6 +40,10 @@ public:
     jobTimer.setTimeOutTime(jobDuration);  // Set the job duration timeout
     backoffTimer.setTimeOutTime(backoffDuration);  // Set the backoff duration timeout
     if(startInBackoffMode){
+      if(runOnceMode) {
+        //this enables the run once mode to start in the hasRun state
+        hasRunOnce = true;
+      }
       backoffTimer.reset();
       isInBackoff = true;
     }
@@ -74,7 +78,7 @@ public:
   }
   
   // Function to reset the job (can only be reset after the backoff has passed)
-  void resetJob() {
+  void resetRunOnce() {
     if (!isJobRunning && !isInBackoff) {
       hasRunOnce = false;  // Allow the job to run again if in "run once" mode
     }

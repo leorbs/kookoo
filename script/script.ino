@@ -120,7 +120,7 @@ JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
 JobManager birdOut(240, birdOutStart, birdOutEnd);
 JobManager birdIn(260, birdInStart, birdInEnd);
 
-JobManager soap(500, 2000, soapOn, soapOff, true);
+JobManager soap(500, 2000, soapOn, soapOff, true, true);
 JobManager room(500, 60000, roomOn, roomOff, true, true);
 JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
@@ -628,14 +628,14 @@ void loop() {
     timeBasedCounter.reset(); //shake is allowed when there is normal usage
     room.renewBackoff(); // when someone uses the soap, we dont need to execute the room procedure
   } else {
-    soap.resetJob(); // this prevents continuous soap, if the handsensor is continuously on
+    soap.resetRunOnce(); // this prevents continuous soap, if the handsensor is continuously on
   }
 
   if (roomSensor_isOn) {
     room.startJob();
     room.renewBackoff(); // this renewes the backoff when someone is constantly in the room. The "room experience" is only for when you enter the room
   } else {
-    room.resetJob();
+    room.resetRunOnce();
   }
 
   // ======================================
