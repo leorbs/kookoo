@@ -31,10 +31,11 @@
 #define ROOM_PIN A1            // praesense sensor module to Arduino pin A1
 #define SHAKE_PIN A2           // sensor module for tamper detection to Arduino pin A2
 
-#define RNG_SEED_PIN A5        // Used to initialize the randomnes A3
+#define RNG_SEED_PIN A6        // Used to initialize the randomnes
 
 #define BUTTON_1 12            // Button for setting the folder
 #define BUTTON_2 A3            // Button for setting the folder
+#define BUTTON_3 A5            // Button for manual soap
 
 #define LED1_PIN 9             // D9 LED
 #define LED2_PIN A4            // LED2
@@ -78,6 +79,7 @@ uint8_t currentRoomFolder_beepCyclePosition = 0;
 
 Bounce2::Button button1 = Bounce2::Button();
 Bounce2::Button button2 = Bounce2::Button();
+Bounce2::Button button3 = Bounce2::Button();
 
 
 TimeBasedCounter timeBasedCounter(SHAKE_OBSERVATION_WINDOW);
@@ -417,6 +419,10 @@ void setup() {
   button2.interval( 10 );
   button2.setPressedState( LOW );
 
+  button3.attach ( BUTTON_3 , INPUT_PULLUP );
+  button3.interval( 10 );
+  button3.setPressedState( LOW );
+
 
   #ifdef DEBUG
     Serial.begin(9600);
@@ -588,6 +594,7 @@ void loop() {
 
   button1.update();
   button2.update();
+  button3.update();
 
   soap.handleJob();
   room.handleJob();
@@ -700,6 +707,16 @@ void loop() {
     }
     mp3Player.stop();
 
+  }
+
+
+  //pump manual override
+  if(button3.pressed()) {
+    Serial.println(F("Manual soap on "));
+    digitalWrite(PUMP_PIN, LOW);
+  } else if(button3.released()) {
+    Serial.println(F("manual soap off"));
+    digitalWrite(PUMP_PIN, HIGH);
   }
 
 }
