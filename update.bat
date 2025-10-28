@@ -52,7 +52,9 @@ echo [Step 3] Cleaning untracked files and directories...
 git clean -fd
 
 echo.
+echo.
 echo [SUCCESS] Repository has been updated to the latest version of %CURRENT_BRANCH%.
+echo.
 echo.
 
 pause
