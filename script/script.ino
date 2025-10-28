@@ -15,15 +15,31 @@
 
 
 // uncomment this line, if you want to show logs on serial:
+
 // #define DEBUG
 //----------------------------------------
+// Settings
+
+#define VOLUME 23                         // sound volume 0-30
+
+#define SHAKE_SENSITIVITY 20              // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_PICKUP_SPEED 150            // minimum time in ms between shake incidents to get registered
+#define SHAKE_OBSERVATION_WINDOW 4000     // Window to observe shakes in ms
+#define COUNTER_SIZE 3                    // how many times should the sensor detect a shake within the window 
+#define SHAKE_DETECTION_TIMEOUT 10000     // how much time after the last shake execution (Pfoten weg) before the shake sensor is active again (ms)?
+
+#define ROOM_DETECTION_TIMEOUT 60000      // how much time after the last activity before the room sensor is active (ms)?
 
 
-#ifdef DEBUG
-  #warning "Serial debugging is enable. This will slow down program flow"
-#endif
+#define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
+#define LED2_BRIGHTNESS 255      // 0-255  
+
+#define SOAP_AMOUNT 350          // How long is the Pump on (ms)?
+#define LED_BLINKING_SPEED 500   // How long is the LED on/off (ms), Blinking speed.
 
 
+//----------------------------------------
+// internals
 
 #define MAIN_LOOP_TIME_BASE_MS	5
 
@@ -52,14 +68,11 @@
 #define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
 #define DFPLAYER_TX_PIN 11     // D11 -> TX on Arduino RX on DFPlayer
 
-#define VOLUME 23              // sound volume 0-30
-#define SHAKE_SENSITIVITY 20   // up to 1024. The higher the number, the lower the sensitivity
-#define SHAKE_PICKUP_SPEED 150 // minimum time in ms between shake incidents to get registered
-#define SHAKE_OBSERVATION_WINDOW 4000 // Window to observe shakes
 
 
-#define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
-#define LED2_BRIGHTNESS 255      // 0-255  
+#ifdef DEBUG
+  #warning "Serial debugging is enable. This will slow down program flow"
+#endif
 
 
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
@@ -122,8 +135,8 @@ JobManager flapBreak(200, flapBreakStart, flapBreakEnd);
 JobManager birdOut(240, birdOutStart, birdOutEnd);
 JobManager birdIn(260, birdInStart, birdInEnd);
 
-JobManager soap(500, 2000, soapOn, soapOff, true, true);
-JobManager room(500, 60000, roomOn, roomOff, true, true);
+JobManager soap(SOAP_AMOUNT, 2000, soapOn, soapOff, true, true);
+JobManager room(500, ROOM_DETECTION_TIMEOUT, roomOn, roomOff, true, true);
 JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 
 // only sound will control bird
@@ -131,8 +144,8 @@ JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 // that means if one sound is running, there can be no other sound and therefore no other bird
 // sound execution time -> full bird cycle. Execution time mandatory to prevent double bird scenario
 
-JobManager ledOn(500, ledOnStart, ledOnEnd);
-JobManager ledOff(500, ledOffStart, ledOffEnd);
+JobManager ledOn(LED_BLINKING_SPEED, ledOnStart, ledOnEnd);
+JobManager ledOff(LED_BLINKING_SPEED, ledOffStart, ledOffEnd);
 
 
 void soapOn() {
@@ -389,8 +402,8 @@ void setup() {
   mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
   mainLoopTimer.reset();
 
-  pinMode(HAND_PIN, INPUT);
-  pinMode(ROOM_PIN, INPUT);
+  pinMode(HAND_PIN, INPUT_PULLUP);
+  pinMode(ROOM_PIN, INPUT_PULLUP);
   pinMode(SHAKE_PIN, INPUT);
 
   pinMode(LED_BUILTIN, OUTPUT);

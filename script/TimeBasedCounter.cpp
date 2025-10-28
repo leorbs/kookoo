@@ -1,6 +1,8 @@
 #include <Arduino.h>
 
-#define COUNTER_SIZE        2
+#ifndef COUNTER_SIZE
+  #define COUNTER_SIZE        3
+#endif
 
 class TimeBasedCounter {
 private:
