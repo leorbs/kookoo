@@ -75,6 +75,14 @@
 #endif
 
 
+// DFPlayer maintenance timers
+unsigned long lastDFPlayerReset = 0;
+unsigned long lastSoapUse = 0;
+
+// Intervals
+const unsigned long DFPLAYER_RESET_INTERVAL = 10UL * 24UL * 60UL * 60UL * 1000UL; // 10 days
+const unsigned long INACTIVITY_WINDOW = 3UL * 60UL * 60UL * 1000UL;               // 3 hours
+
 SoftwareSerial DFPlayerSoftwareSerial(DFPLAYER_RX_PIN,DFPLAYER_TX_PIN);// RX, TX
 DFRobotDFPlayerMini mp3Player;
 SoftTimer mainLoopTimer;
@@ -588,7 +596,26 @@ void doMp3PlayerSetupStuff() {
   mp3Player.setTimeOut(1000);
 }
 
+void reinitializeDFPlayerSerial() {
 
+  mp3Player.stop();
+  delay(200);
+
+  DFPlayerSoftwareSerial.end();
+  delay(100);
+
+  DFPlayerSoftwareSerial.begin(9600);
+  delay(200);
+
+  bool ok = mp3Player.begin(DFPlayerSoftwareSerial, true, true);
+
+  Serial.println(F("Reinitialized MP3 Player"));
+  if (ok) {
+  Serial.println(F("initialization was ok"));
+    mp3Player.volume(VOLUME);
+  }
+  
+}
 
 
 void loop() {
@@ -645,6 +672,7 @@ void loop() {
   //--------------------------------------
   if (handSensor_isOn) {
     soap.startJob();
+    lastSoapUse = currentTime;
     timeBasedCounter.reset(); //shake is allowed when there is normal usage
     room.renewBackoff(); // when someone uses the soap, we dont need to execute the room procedure
   } else {
@@ -658,14 +686,23 @@ void loop() {
     room.resetRunOnce();
   }
 
+  //--------------------------------------
+  // Periodic DFPlayer serial reinitialization (rollover-safe)
+  if ((unsigned long)(currentTime - lastDFPlayerReset) >= DFPLAYER_RESET_INTERVAL &&
+      (unsigned long)(currentTime - lastSoapUse) >= INACTIVITY_WINDOW) {
+
+    Serial.println(F("Reinitializing DFPlayer serial interface after long uptime + inactivity..."));
+    reinitializeDFPlayerSerial();
+
+    lastDFPlayerReset = currentTime;  // Update timestamp safely
+  }
+
+
   // ======================================
   // new idea:
   // add the analog signal to a counter
   // decrease counter in each loop
   // if counter too high, then tilt
-
-  
-  
 
   if(shakeSensor_value > SHAKE_SENSITIVITY && currentTime - timeBasedCounter.getLatestTime() > SHAKE_PICKUP_SPEED && !shake.isBackoffActive()) {
 
