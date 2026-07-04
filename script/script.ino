@@ -23,18 +23,18 @@
 #define VOLUME 23                         // sound volume 0-30
 
 #define SHAKE_SENSITIVITY 20              // up to 1024. The higher the number, the lower the sensitivity
-#define SHAKE_PICKUP_SPEED 150            // minimum time in ms between shake incidents to get registered
+#define SHAKE_PICKUP_SPEED 100            // minimum time in ms between shake incidents to get registered
 #define SHAKE_OBSERVATION_WINDOW 4000     // Window to observe shakes in ms
-#define COUNTER_SIZE 3                    // how many times should the sensor detect a shake within the window 
+#define COUNTER_SIZE 3                    // how many times should the sensor detect a shake within the window
 #define SHAKE_DETECTION_TIMEOUT 10000     // how much time after the last shake execution (Pfoten weg) before the shake sensor is active again (ms)?
 
 #define ROOM_DETECTION_TIMEOUT 60000      // how much time after the last activity before the room sensor is active (ms)?
 
 
 #define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
-#define LED2_BRIGHTNESS 255      // 0-255  
+#define LED2_BRIGHTNESS 255      // 0-255
 
-#define SOAP_AMOUNT 350          // How long is the Pump on (ms)?
+#define SOAP_AMOUNT 700         // How long is the Pump on (ms)?
 #define LED_BLINKING_SPEED 500   // How long is the LED on/off (ms), Blinking speed.
 
 
@@ -59,10 +59,10 @@
 
 #define BIRD_FLAP_PIN 6        // D6 bird flap
 
-#define BIRD_MOTOR1_GND_PIN 5  // D5 
+#define BIRD_MOTOR1_GND_PIN 5  // D5
 #define BIRD_MOTOR1_VCC_PIN 2  // D2
 
-#define BIRD_MOTOR2_GND_PIN 3  // D3 
+#define BIRD_MOTOR2_GND_PIN 3  // D3
 #define BIRD_MOTOR2_VCC_PIN 4  // D4
 
 #define DFPLAYER_RX_PIN 10     // D10 -> RX on Arduino TX on DFPlayer
@@ -155,10 +155,15 @@ JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 JobManager ledOn(LED_BLINKING_SPEED, ledOnStart, ledOnEnd);
 JobManager ledOff(LED_BLINKING_SPEED, ledOffStart, ledOffEnd);
 
+SoftTimer jiggleTimer;
+bool pumpIsOn = false;
 
 void soapOn() {
   Serial.println(F("switch soap on"));
   digitalWrite(PUMP_PIN, LOW);
+
+  jiggleTimer.reset();
+  pumpIsOn = true;
 
   // set new sound params for the sound job
   Serial.print(sound.isJobActive());
@@ -183,6 +188,8 @@ void soapOn() {
 void soapOff() {
   Serial.println(F("switch soap off"));
   digitalWrite(PUMP_PIN, HIGH);
+
+  pumpIsOn = false;
 }
 
 void roomOn() {
@@ -228,7 +235,7 @@ void soundOn() {
   Serial.print(soundParams.folderId);
   Serial.println(F(" folderId playing"));
 
-  
+
   int count = folderFileCounts[soundParams.folderId];
   uint8_t fileNum = random(1, count + 1);
   Serial.print(F("Playing file "));
@@ -267,7 +274,7 @@ void birdOutEnd() {
   Serial.println(F("Bird out end"));
   digitalWrite(BIRD_MOTOR1_GND_PIN, LOW);
   digitalWrite(BIRD_MOTOR1_VCC_PIN, HIGH);
-  
+
   //execute the chain
   if(soundParams.flapBreakPatternSize > soundParams.flapPatternSize) {
     flapBreak.startJob();
@@ -407,6 +414,9 @@ void printDetail(uint8_t type, int value){
 }
 
 void setup() {
+  jiggleTimer.setTimeOutTime(50);
+  jiggleTimer.reset();
+
   mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
   mainLoopTimer.reset();
 
@@ -430,7 +440,7 @@ void setup() {
   pinMode(BIRD_MOTOR2_GND_PIN, OUTPUT);
   digitalWrite(BIRD_MOTOR2_GND_PIN, LOW);
   pinMode(BIRD_MOTOR2_VCC_PIN, OUTPUT);
-  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH); 
+  digitalWrite(BIRD_MOTOR2_VCC_PIN, HIGH);
 
   button1.attach ( BUTTON_1 , INPUT_PULLUP );
   button1.interval( 10 );
@@ -462,7 +472,7 @@ void setup() {
   //mp3 player stuff
   DFPlayerSoftwareSerial.begin(9600); // DFPlayer Mini mit SoftwareSerial initialisieren
   bool mp3PlayerOnline = mp3Player.begin(DFPlayerSoftwareSerial, true, true);
-  
+
   if(mp3PlayerOnline) {
     doMp3PlayerSetupStuff();
   }
@@ -524,7 +534,7 @@ void doMp3PlayerSetupStuff() {
       Serial.print(F("consecutiveSame: "));
       Serial.println(consecutiveSame);
       currentRead = mp3Player.readFileCountsInFolder(i);
-      
+
       if(mp3Player.available() ) {
         uint8_t type = mp3Player.readType();
         int value = mp3Player.read();
@@ -614,14 +624,15 @@ void reinitializeDFPlayerSerial() {
   Serial.println(F("initialization was ok"));
     mp3Player.volume(VOLUME);
   }
-  
+
 }
+
 
 
 void loop() {
   while(!mainLoopTimer.hasTimedOut());
   mainLoopTimer.reset();
-  
+
   currentTime = millis();
 
   // Sensor-Zustand überprüfen
@@ -648,6 +659,19 @@ void loop() {
   ledOff.handleJob();
 
 
+  if(soap.isJobActive() && jiggleTimer.hasTimedOut()) {
+
+    if(pumpIsOn) {
+      digitalWrite(PUMP_PIN, HIGH);
+      pumpIsOn = false;
+    } else {
+      digitalWrite(PUMP_PIN, LOW);
+      pumpIsOn = true;
+    }
+    jiggleTimer.reset();
+  }
+
+
   //--------------------------------------
   // sound observation loop
 
@@ -667,6 +691,7 @@ void loop() {
       printDetail(type, value); //Print the detail message from DFPlayer to handle different errors and states.
     }
   }
+
 
 
   //--------------------------------------
@@ -733,14 +758,14 @@ void loop() {
   // ======================================
   // WARNING, THIS BLOCKS THE LOOP FLOW
   if ( button1.pressed() || button2.pressed() ) {
-    
+
     Serial.println(F("button1 pressed"));
     currentRoomFolder = currentRoomFolder + 1;
 
     Serial.print(F("currentRoomFolder"));
     Serial.println(currentRoomFolder);
 
-    
+
     Serial.print(F("maxDetectedFolders"));
     Serial.println(maxDetectedFolders);
 
