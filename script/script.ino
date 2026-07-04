@@ -16,16 +16,16 @@
 
 // uncomment this line, if you want to show logs on serial:
 
-// #define DEBUG
+//#define DEBUG
 //----------------------------------------
 // Settings
 
 #define VOLUME 23                         // sound volume 0-30
 
-#define SHAKE_SENSITIVITY 20              // up to 1024. The higher the number, the lower the sensitivity
-#define SHAKE_PICKUP_SPEED 150            // minimum time in ms between shake incidents to get registered
+#define SHAKE_SENSITIVITY 17              // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_PICKUP_SPEED 100            // minimum time in ms between shake incidents to get registered
 #define SHAKE_OBSERVATION_WINDOW 4000     // Window to observe shakes in ms
-#define COUNTER_SIZE 3                    // how many times should the sensor detect a shake within the window 
+#define COUNTER_SIZE 2                    // how many times should the sensor detect a shake within the window 
 #define SHAKE_DETECTION_TIMEOUT 10000     // how much time after the last shake execution (Pfoten weg) before the shake sensor is active again (ms)?
 
 #define ROOM_DETECTION_TIMEOUT 60000      // how much time after the last activity before the room sensor is active (ms)?
@@ -34,7 +34,7 @@
 #define LED1_BRIGHTNESS 255      // 0-255 led from the front header (big connector)
 #define LED2_BRIGHTNESS 255      // 0-255  
 
-#define SOAP_AMOUNT 350          // How long is the Pump on (ms)?
+#define SOAP_AMOUNT 700         // How long is the Pump on (ms)?
 #define LED_BLINKING_SPEED 500   // How long is the LED on/off (ms), Blinking speed.
 
 
@@ -155,10 +155,15 @@ JobManager shake(550, 10000, shakeOn, shakeOff, false, true);
 JobManager ledOn(LED_BLINKING_SPEED, ledOnStart, ledOnEnd);
 JobManager ledOff(LED_BLINKING_SPEED, ledOffStart, ledOffEnd);
 
+SoftTimer jiggleTimer;
+bool pumpIsOn = false;
 
 void soapOn() {
   Serial.println(F("switch soap on"));
   digitalWrite(PUMP_PIN, LOW);
+
+  jiggleTimer.reset();
+  pumpIsOn = true;
 
   // set new sound params for the sound job
   Serial.print(sound.isJobActive());
@@ -183,7 +188,9 @@ void soapOn() {
 void soapOff() {
   Serial.println(F("switch soap off"));
   digitalWrite(PUMP_PIN, HIGH);
-}
+
+  pumpIsOn = false;
+} 
 
 void roomOn() {
 
@@ -407,6 +414,9 @@ void printDetail(uint8_t type, int value){
 }
 
 void setup() {
+  jiggleTimer.setTimeOutTime(50);
+  jiggleTimer.reset();
+
   mainLoopTimer.setTimeOutTime(MAIN_LOOP_TIME_BASE_MS);
   mainLoopTimer.reset();
 
@@ -618,6 +628,7 @@ void reinitializeDFPlayerSerial() {
 }
 
 
+
 void loop() {
   while(!mainLoopTimer.hasTimedOut());
   mainLoopTimer.reset();
@@ -648,6 +659,19 @@ void loop() {
   ledOff.handleJob();
 
 
+  if(soap.isJobActive() && jiggleTimer.hasTimedOut()) {
+
+    if(pumpIsOn) {
+      digitalWrite(PUMP_PIN, HIGH);
+      pumpIsOn = false;
+    } else {
+      digitalWrite(PUMP_PIN, LOW);
+      pumpIsOn = true;
+    }
+    jiggleTimer.reset();
+  }
+  
+
   //--------------------------------------
   // sound observation loop
 
@@ -667,6 +691,7 @@ void loop() {
       printDetail(type, value); //Print the detail message from DFPlayer to handle different errors and states.
     }
   }
+
 
 
   //--------------------------------------

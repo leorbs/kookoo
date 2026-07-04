@@ -11,14 +11,14 @@ private:
 
 public:
   TimeBasedCounter(unsigned long window = 5000) : withinTime(window) {
-    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+    for (int i = 0; i < COUNTER_SIZE; i++) {
       times[i] = 0 - withinTime;  // initialize with offset
     }
   }
 
   // Add current time and check if all COUNTER_SIZE are within the window
   bool addTimeAndCheck(unsigned long currentTime) {
-    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+    for (int i = 0; i < COUNTER_SIZE; i++) {
       if ((unsigned long)(currentTime - times[i]) > withinTime) {
         times[i] = currentTime;
         return false;
@@ -31,7 +31,10 @@ public:
 
   // Reset all stored by shifting them back timestamps
   void reset() {
-    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+#ifdef DEBUG
+    Serial.print("reset times called");
+#endif
+    for (int i = 0; i < COUNTER_SIZE; i++) {
       times[i] = times[i] - withinTime;
     }
   }
@@ -39,7 +42,7 @@ public:
   // Count how many events occurred within the window
   uint8_t getCurrentShakeCounter(unsigned long currentTime) const {
     uint8_t counter = 0;
-    for (uint8_t i = 0; i < COUNTER_SIZE; i++) {
+    for (int i = 0; i < COUNTER_SIZE; i++) {
       if ((unsigned long)(currentTime - times[i]) <= withinTime) {
 #ifdef DEBUG
         Serial.print("Current time ");
@@ -60,7 +63,7 @@ public:
   // Get the latest timestamp from the stored values
   unsigned long getLatestTime() const {
     unsigned long newest = times[0];
-    for (uint8_t i = 1; i < COUNTER_SIZE; i++) {
+    for (int i = 1; i < COUNTER_SIZE; i++) {
       // For explanation, google
       // "Modular (or Unsigned) Time Comparison"
       // "Half-range unsigned comparison"
