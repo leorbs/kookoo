@@ -16,16 +16,16 @@
 
 // uncomment this line, if you want to show logs on serial:
 
-// #define DEBUG
+//#define DEBUG
 //----------------------------------------
 // Settings
 
 #define VOLUME 23                         // sound volume 0-30
 
-#define SHAKE_SENSITIVITY 20              // up to 1024. The higher the number, the lower the sensitivity
+#define SHAKE_SENSITIVITY 17              // up to 1024. The higher the number, the lower the sensitivity
 #define SHAKE_PICKUP_SPEED 100            // minimum time in ms between shake incidents to get registered
 #define SHAKE_OBSERVATION_WINDOW 4000     // Window to observe shakes in ms
-#define COUNTER_SIZE 3                    // how many times should the sensor detect a shake within the window
+#define COUNTER_SIZE 2                    // how many times should the sensor detect a shake within the window
 #define SHAKE_DETECTION_TIMEOUT 10000     // how much time after the last shake execution (Pfoten weg) before the shake sensor is active again (ms)?
 
 #define ROOM_DETECTION_TIMEOUT 60000      // how much time after the last activity before the room sensor is active (ms)?
